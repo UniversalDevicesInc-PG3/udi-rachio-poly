@@ -1,5 +1,5 @@
 # Rachio-polyglot
-This is the Rachio Node Server for the ISY Polyglot V2 interface.  
+This is the Rachio Node Server for the ISY Polyglot V3 interface.  
 (c) fahrer16 aka Brian Feeney.  
 MIT license. 
 

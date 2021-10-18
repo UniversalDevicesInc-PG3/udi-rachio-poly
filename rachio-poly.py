@@ -4,13 +4,7 @@ This is a NodeServer for Rachio irrigation controllers by fahrer16 (Brian Feeney
 Based on template for Polyglot v2 written in Python2/3 by Einstein.42 (James Milne) milne.james@gmail.com
 """
 
-CLOUD = False
-
-try:
-    import polyinterface
-except ImportError:
-    import pgc_interface as polyinterface
-    CLOUD = True
+import udi_interface
 import sys
 from socket import error as socket_error
 from copy import deepcopy
@@ -26,7 +20,7 @@ import ssl
 from pathlib import Path
 #from socketserver import ThreadingMixIn
  
-LOGGER = polyinterface.LOGGER
+LOGGER = udi_interface.LOGGER
 FILE = open('server.json')
 SERVERDATA = json.load(FILE)
 VERSION = SERVERDATA['credits'][0]['version']
@@ -47,34 +41,11 @@ WS_EVENT_TYPES = {
 #class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 #        """Handle requests in a separate thread."""
 
-class Controller(polyinterface.Controller):
-    """
-    The Controller Class is the primary node from an ISY perspective. It is a Superclass
-    of polyinterface.Node so all methods from polyinterface.Node are available to this
-    class as well.
-
-    Class Variables:
-    self.nodes: Dictionary of nodes. Includes the Controller node. Keys are the node addresses
-    self.name: String name of the node
-    self.address: String Address of Node, must be less than 14 characters (ISY limitation)
-    self.polyConfig: Full JSON config dictionary received from Polyglot.
-    self.added: Boolean Confirmed added to ISY as primary node
-
-    Class Methods (not including the Node methods):
-    start(): Once the NodeServer config is received from Polyglot this method is automatically called.
-    addNode(polyinterface.Node): Adds Node to self.nodes and polyglot/ISY. This is called for you
-                                 on the controller itself.
-    delNode(address): Deletes a Node from the self.nodes/polyglot and ISY. Address is the Node's Address
-    longPoll(): Runs every longPoll seconds (set initially in the server.json or default 10 seconds)
-    shortPoll(): Runs every shortPoll seconds (set initially in the server.json or default 30 seconds)
-    query(): Queries and reports ALL drivers for ALL nodes to the ISY.
-    runForever(): Easy way to run forever without maxing your CPU or doing some silly 'time.sleep' nonsense
-                  this joins the underlying queue query thread and just waits for it to terminate
-                  which never happens.
-    """
-    def __init__(self, polyglot):
-        super().__init__(polyglot)
+class Controller(udi_interface.Node):
+    def __init__(self, polyglot, primary, address, name):
+        super().__init__(polyglot, primary, address, name)
         self.name = 'Rachio Bridge'
+        self.poly = polyglot
         #Queue for nodes to be added in order to prevent a flood of nodes from being created on discovery.  Added version 2.2.0
         self.nodeQueue = {}
         _msg = "Connection timer created for node addition queue"
@@ -85,89 +56,70 @@ class Controller(polyinterface.Controller):
         self.device_id = ''
         self.use_ssl = False
         self.wsConnectivityTestRequired = True
-        self._cloud = CLOUD
 
-    def start(self):
-        LOGGER.info('Starting Rachio Polyglot v2 NodeServer version {}'.format(VERSION))
+        polyglot.subscribe(polyglot.START, self.start, address)
+        polyglot.subscribe(polyglot.CUSTOMPARAMS, self.parameterHandler)
+        polyglot.subscribe(polyglot.POLL, self.poll)
+
+        polyglot.ready()
+        polyglot.addNode(self)
+
+
+    def parameterHandler(self, params):
+        self.poly.Notices.clear()
         try:
-            if 'api_key' in self.polyConfig['customParams']:
-                self.api_key = self.polyConfig['customParams']['api_key']
+            if 'api_key' in params and params['api_key'] != "":
+                self.api_key = params['api_key']
             else:
                 LOGGER.error('Rachio API key required in order to establish connection.  Enter custom parameter of \'api_key\' in Polyglot configuration.  See "https://rachio.readme.io/v1.0/docs" for instructions on how to obtain Rachio API Key.')
-                sys.exit(0)
+                self.poly.Notices['api'] = 'Rachio API key required in order to establish connection.  See "https://rachio.readme.io/v1.0/docs" for instructions on how to obtain Rachio API Key.'
                 return False
         
         except Exception as ex:
             LOGGER.error('Error reading Rachio API Key from Polyglot Configuration: %s', str(ex))
             return False
-            
+
         ###Start HTTP Server for Webhooks####
         try:
-            if self._cloud:
-                if self.polyConfig['development']:
-                    self.port = self.polyConfig['customParams']['port']
-                else:
-                    #self.port = self.poly.init['netInfo']['publicPort']
-                    #LOGGER.debug('httpsIngress = %s',str(self.polyConfig['netInfo']['httpsIngress']))      
-                    self.port = 443
-            elif 'port' in self.polyConfig['customParams']:
-                self.port = int(self.polyConfig['customParams']['port'])
+            if 'port' in params:
+                self.port = int(params['port'])
             else:
+                self.poly.Notices['port'] = 'No HTTP Port specified in Rachio configuration for Webhook endpoint.  Using port %s for now.', str(self.port)
                 LOGGER.info('No HTTP Port specified in Rachio configuration for Webhook endpoint.  Using port %s for now.  Enter custom parameter of \'port\' in Polyglot configuration.', str(self.port))
-            
-            if not self._cloud:
-                LOGGER.info('Ensure router/firewall is set to forward requests to polyglot host on port %s',str(self.port))
-                
+            LOGGER.info('Ensure router/firewall is set to forward requests to polyglot host on port %s',str(self.port))
         except Exception as ex:
             LOGGER.error('Error reading webhook Port from Polyglot Configuration: %s', str(ex))
-            sys.exit(0)
-            return False
-            
-        try:
-            if self._cloud:
-                self.worker = self.polyConfig['worker']
-                if self.polyConfig['development']:
-                    self.httpHost = self.polyConfig['customParams']['host']
-                else:
-                    #self.httpHost = self.polyConfig['netInfo']['publicIp']
-                    self.httpHost = str(self.polyConfig['netInfo']['httpsIngress'])
-                    self.httpHost = self.httpHost.replace('https://','').replace('/ns/' + self.worker + '/','')
-            elif 'host' in self.polyConfig['customParams']:
-                self.httpHost = self.polyConfig['customParams']['host']
-            else:
-                LOGGER.error('No HTTP Host specified in Rachio configuration for webhook endpoint.  Enter custom parameter of \'host\' in Polyglot configuration.')
-                sys.exit(0)
-        except Exception as ex:
-            LOGGER.error('Error reading webhook host name from Polyglot Configuration: %s', str(ex))
-            sys.exit(0)
             return False
 
-        if self._cloud:
-            #LOGGER.debug('Using default certificate for Polyglot Cloud to host secure webhook endpoint')
-            #certfile = '/app/certs/AmazonRootCA1.pem'
-            certfile = ''
-        elif 'certfile' in self.polyConfig['customParams']:
-            certfile = self.polyConfig['customParams']['certfie']
+        try:
+            if 'host' in params and params['host'] != "":
+                self.httpHost = params['host']
+            else:
+                self.poly.Notices['host'] = 'No HTTP Host specified in Rachio configuration for webhook endpoint.'
+                LOGGER.error('No HTTP Host specified in Rachio configuration for webhook endpoint.  Enter custom parameter of \'host\' in Polyglot configuration.')
+        except Exception as ex:
+            LOGGER.error('Error reading webhook host name from Polyglot Configuration: %s', str(ex))
+            return False
+
+        if 'certfile' in params:
+            certfile = params['certfie']
             LOGGER.debug('Trying custom key file: {}'.format(certfile))
         else:
             certfile = 'certificate.pem'
             LOGGER.debug('Trying default key file: {}'.format(certfile))
-        
+
         if Path(certfile).is_file():
             LOGGER.debug('Certificate file exists, enabling SSL')
             self.use_ssl = True
         else:
-            if not self._cloud:
-                LOGGER.debug('Can\'t locate certificate, SSL disabled')
-        
+            LOGGER.debug('Can\'t locate certificate, SSL disabled')
+
         try:
             _localPort = self.port
-            if self._cloud:
-                _localPort = 3000
             LOGGER.debug('Starting Webhook Server on port %s',str(_localPort))
             self.webSocketServer = HTTPServer(('', int(_localPort)), webSocketHandler)
             self.webSocketServer.controller = self #To allow handler to access this class when receiving a request from Rachio servers
-            if self.use_ssl and not self._cloud:
+            if self.use_ssl:
                 try:
                     self.webSocketServer.socket = ssl.wrap_socket(self.webSocketServer.socket, certfile=certfile, server_side=True)
                 except Exception as ex:
@@ -176,15 +128,14 @@ class Controller(polyinterface.Controller):
             self.httpThread = threading.Thread(target=self.webSocketServer.serve_forever, daemon=True).start()
         except Exception as ex:
             LOGGER.error('Error starting webhook server: %s', str(ex))
-            sys.exit(0)
             return False
-        
-        if self.testWebSocketConnectivity(self.httpHost, self.port) or self._cloud:
+
+        if self.testWebSocketConnectivity(self.httpHost, self.port):
             #Get Node Addition Interval from Polyglot Configuration (Added version 2.2.0)
             self.wsConnectivityTestRequired = False
             try:
-                if 'nodeAdditionInterval' in self.polyConfig['customParams']:
-                    _nodeAdditionInterval = self.polyConfig['customParams']['nodeAdditionInterval']
+                if 'nodeAdditionInterval' in params:
+                    _nodeAdditionInterval = params['nodeAdditionInterval']
                     if _nodeAdditionInterval >= 0 and _nodeAdditionInterval <= 60:
                         self.nodeAdditionInterval = _nodeAdditionInterval
                     else:
@@ -197,17 +148,16 @@ class Controller(polyinterface.Controller):
             self.discover()
         else:
             LOGGER.error('Webhook connectivity test failed, exiting')
-            sys.exit(0)
-        
+
         LOGGER.debug('Rachio "start" routine complete')
+
+    def start(self):
+        LOGGER.info('Starting Rachio Polyglot v3 NodeServer version {}'.format(VERSION))
         
         
     def testWebSocketConnectivity(self, host, port):
         try:
-            if self._cloud:
-                conn = http.client.HTTPSConnection(host)
-                LOGGER.info('Testing connectivity to polyglot cloud webhook handler')
-            elif self.use_ssl:
+            if self.use_ssl:
                 conn = http.client.HTTPSConnection(host, port=port)
                 LOGGER.info('Testing connectivity to %s:%s', str(host), str(port))
             else:
@@ -216,8 +166,6 @@ class Controller(polyinterface.Controller):
                 
             _headers = {'Content-Type': 'application/json'}
             _prefix = ""
-            if self._cloud:
-                _prefix = '/ns/' + self.worker
             conn.request('GET', _prefix + '/test', headers=_headers)
             _resp = conn.getresponse()
             content_type = _resp.getheader('Content-Type')
@@ -245,10 +193,7 @@ class Controller(polyinterface.Controller):
             
     def configureWebSockets(self, WS_deviceID):
         #Get the webhooks configured for the specified device.  Delete any older, inappropriate webhooks and create new ones as needed
-        if self._cloud:
-            _prefix = '/ns/' + self.worker
-            _url = 'http://' +self.httpHost + '/ns/' + self.worker + '/'
-        elif self.use_ssl:
+        if self.use_ssl:
             _url = 'https://' + _prefix + self.httpHost + ':' + str(self.port)
         else:
             _url = 'http://' + self.httpHost + ':' + str(self.port)
@@ -323,15 +268,13 @@ class Controller(polyinterface.Controller):
             LOGGER.error('Error configuring webhooks for device %s: %s', str(WS_deviceID), str(ex))
 
     
-    def shortPoll(self):
-        pass
-
-    def longPoll(self):
-        try:
-            for node in self.nodes:
-                self.nodes[node].update_info(force=False,queryAPI=False)
-        except Exception as ex:
-            LOGGER.error('Error running longPoll on %s: %s', self.name, str(ex))
+    def poll(self, polltype):
+        if 'longPoll' in polltype:
+            try:
+                for node in self.poly.nodes():
+                    node.update_info(force=False,queryAPI=False)
+            except Exception as ex:
+                LOGGER.error('Error running longPoll on %s: %s', self.name, str(ex))
 
     def update_info(self, force=False, queryAPI=True):
         #Nothing to update for this node
@@ -339,15 +282,15 @@ class Controller(polyinterface.Controller):
 
     def query(self, command = None):
         try:
-            for node in self.nodes:
-                self.nodes[node].update_info(force=True)
+            for node in self.poly.nodes():
+                node.update_info(force=True)
         except Exception as ex:
             LOGGER.error('Error running query on %s: %s', self.name, str(ex))
 
     def discoverCMD(self, command=None):
         # This is command called by ISY discover button
-        for node in self.nodes:
-            self.nodes[node].discover()
+        for node in self.poly.nodes():
+            node.discover()
 
     def discover(self, command=None):
         LOGGER.info('Starting discovery on %s', self.name)
@@ -374,7 +317,7 @@ class Controller(polyinterface.Controller):
                 _address = str(d['macAddress']).lower()
                 if _address not in self.nodes:
                     #LOGGER.info('Adding Rachio Controller: %s(%s)', _name, _address)
-                    self.addNodeQueue(RachioController(self, _address, _address, _name, d))
+                    self.addNodeQueue(RachioController(self.poly, _address, _address, _name, d))
                 self.configureWebSockets(_device_id)
 
         except Exception as ex:
@@ -408,7 +351,7 @@ class Controller(polyinterface.Controller):
             if len(self.nodeQueue) > 0:
                 for _address in self.nodeQueue:
                     LOGGER.debug('Adding %s(%s) from queue', self.name, self.address)
-                    self.addNode(self.nodeQueue[_address])
+                    self.poly.addNode(self.nodeQueue[_address])
                     del self.nodeQueue[_address]
                     break #only add one node at a time
         
@@ -428,15 +371,16 @@ class Controller(polyinterface.Controller):
     drivers = [{'driver': 'ST', 'value': 0, 'uom': 2}]
 
 
-class RachioController(polyinterface.Node):
-    def __init__(self, parent, primary, address, name, device):
-        super().__init__(parent, primary, address, name)
+class RachioController(udi_interface.Node):
+    def __init__(self, polyglot, primary, address, name, device):
+        super().__init__(polyglot, primary, address, name)
         self.isPrimary = True
         self.primary = primary
-        self.parent = parent
+        self.poly = polyglot
         self.device = device
         self.device_id = device['id']
         self.lastDeviceUpdateTime = datetime(1970,1,1)
+        parent = polyglot.getNode(primary)
         
         self.rainDelay_minutes_remaining = 0
         self.currentSchedule = []
@@ -449,6 +393,9 @@ class RachioController(polyinterface.Node):
                               3: "OTHER"}
                               
         self.discoverComplete = False
+
+        polyglot.subscribe(polyglot.START, self.start, address)
+
 
     def start(self):
         self.update_info(force=True,queryAPI=True)
@@ -465,9 +412,9 @@ class RachioController(polyinterface.Node):
                 _zone_num = str(z['zoneNumber'])
                 _zone_addr = self.address + _zone_num #construct address for this zone (mac address of controller appended with zone number) because ISY limit is 14 characters
                 _zone_name = str(z['name'])
-                if _zone_addr not in self.parent.nodes:
+                if not self.poly.getNode(_zone_addr):
                     #LOGGER.info('Adding new Rachio Zone to %s Controller, %s(%s)', self.name, _zone_name, _zone_addr)
-                    self.parent.addNodeQueue(RachioZone(self.parent, self.address, _zone_addr, _zone_name, z, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
+                    self.parent.addNodeQueue(RachioZone(self.poly, self.address, _zone_addr, _zone_name, z, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
             LOGGER.error('Error discovering and adding Zones on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
@@ -479,9 +426,9 @@ class RachioController(polyinterface.Node):
                 _sched_id = str(s['id'])
                 _sched_addr = self.address + _sched_id[-2:] #construct address for this schedule (mac address of controller appended with last 2 characters of schedule unique id) because ISY limit is 14 characters
                 _sched_name = str(s['name'])
-                if _sched_addr not in self.parent.nodes:
+                if not self.poly.getNode(_sched_addr):
                     #LOGGER.info('Adding new Rachio Schedule to %s Controller, %s(%s)', self.name, _sched_name, _sched_addr)
-                    self.parent.addNodeQueue(RachioSchedule(self.parent, self.address, _sched_addr, _sched_name, s, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
+                    self.parent.addNodeQueue(RachioSchedule(self.poly, self.address, _sched_addr, _sched_name, s, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
             LOGGER.error('Error discovering and adding Schedules on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
@@ -493,9 +440,9 @@ class RachioController(polyinterface.Node):
                 _flex_sched_id = str(f['id'])
                 _flex_sched_addr = self.address + _flex_sched_id[-2:] #construct address for this schedule (mac address of controller appended with last 2 characters of schedule unique id) because ISY limit is 14 characters
                 _flex_sched_name = str(f['name'])
-                if _flex_sched_addr not in self.parent.nodes:
+                if not self.poly.getNode(_flex_sched_addr):
                     #LOGGER.info('Adding new Rachio Flex Schedule to %s Controller, %s(%s)',self.name, _flex_sched_name, _flex_sched_addr)
-                    self.parent.addNodeQueue(RachioFlexSchedule(self.parent, self.address, _flex_sched_addr, _flex_sched_name, f, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
+                    self.parent.addNodeQueue(RachioFlexSchedule(self.poly, self.address, _flex_sched_addr, _flex_sched_name, f, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
             LOGGER.error('Error discovering and adding Flex Schedules on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
@@ -750,9 +697,9 @@ class RachioController(polyinterface.Node):
     id = 'rachio_device'
     commands = {'DON': enable, 'DOF': disable, 'QUERY': query, 'STOP': stopCmd, 'RAIN_DELAY': rainDelay}
 
-class RachioZone(polyinterface.Node):
-    def __init__(self, parent, primary, address, name, zone, device_id, device):
-        super().__init__(parent, primary, address, name)
+class RachioZone(udi_interface.Node):
+    def __init__(self, polyglog, primary, address, name, zone, device_id, device):
+        super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
         self.device = device
         self.zone = zone
@@ -762,6 +709,9 @@ class RachioZone(polyinterface.Node):
         self.rainDelayExpiration = 0
         self.currentSchedule = []
         self._tries = 0
+        self.parent = polyglot.getNode(primary)
+
+        polyglot.subscribe(polyglot.START, self.start, address)
 
     def start(self):
         self.update_info(force=True,queryAPI=True)
@@ -922,9 +872,9 @@ class RachioZone(polyinterface.Node):
     id = 'rachio_zone'
     commands = {'QUERY': query, 'START': startCmd}
 
-class RachioSchedule(polyinterface.Node):
-    def __init__(self, parent, primary, address, name, schedule, device_id, device):
-        super().__init__(parent, primary, address, name)
+class RachioSchedule(udi_interface.Node):
+    def __init__(self, polyglot, primary, address, name, schedule, device_id, device):
+        super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
         self.device = device
         self.schedule = schedule
@@ -934,6 +884,9 @@ class RachioSchedule(polyinterface.Node):
         self.currentSchedule = []
         self.scheduleItems = []
         self._tries = 0
+        self.parent = polyglot.getNode(primary)
+
+        polyglot.subscribe(polyglot.START, self.start, address)
 
     def start(self):
         self.update_info(force=True,queryAPI=True)
@@ -1065,9 +1018,9 @@ class RachioSchedule(polyinterface.Node):
     id = 'rachio_schedule'
     commands = {'QUERY': query, 'START': startCmd, 'SKIP':skip, 'ADJUST':seasonalAdjustment}
 
-class RachioFlexSchedule(polyinterface.Node):
-    def __init__(self, parent, primary, address, name, schedule, device_id, device):
-        super().__init__(parent, primary, address, name)
+class RachioFlexSchedule(udi_interface.Node):
+    def __init__(self, polyglot, primary, address, name, schedule, device_id, device):
+        super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
         self.device = device
         self.schedule = schedule
@@ -1076,6 +1029,9 @@ class RachioFlexSchedule(polyinterface.Node):
         self.address = address
         self.currentSchedule = []
         self._tries = 0
+        self.parent = polyglot.getNode(primary)
+
+        polyglot.subscribe(polyglot.START, self.start, address)
 
     def start(self):
         self.update_info(force=True,queryAPI=True)
@@ -1169,7 +1125,7 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
         try:
             #_prefix = ""
             #_prefix = '/ns/' + self.server.controller.worker
-            if self.server.controller.wsConnectivityTestRequired or self.server.controller._cloud:
+            if self.server.controller.wsConnectivityTestRequired:
                 self.send_response(200)
                 self.send_header('Content-Type','application/json')
                 data = '{"success": "True"}'
@@ -1189,10 +1145,12 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
     
 if __name__ == "__main__":
     try:
-        polyglot = polyinterface.Interface('Rachio')
+        polyglot = udi_interface.Interface([])
         polyglot.start()
-        control = Controller(polyglot)
-        control.runForever()
+        polyglot.updateProfile()
+        polyglot.setCustomParamsDoc()
+        control = Controller(polyglot, 'controller', 'controller', 'Ranchio')
+        polyglot.runForever()
     except (KeyboardInterrupt, SystemExit):
         try:
             control.webSocketServer.server_close()
