@@ -1146,7 +1146,7 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
 if __name__ == "__main__":
     try:
         polyglot = udi_interface.Interface([])
-        polyglot.start()
+        polyglot.start('4.0.0')
         polyglot.updateProfile()
         polyglot.setCustomParamsDoc()
         control = Controller(polyglot, 'controller', 'controller', 'Ranchio')
