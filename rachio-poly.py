@@ -380,7 +380,7 @@ class RachioController(udi_interface.Node):
         self.device = device
         self.device_id = device['id']
         self.lastDeviceUpdateTime = datetime(1970,1,1)
-        parent = polyglot.getNode(primary)
+        self.parent = polyglot.getNode(primary)
         
         self.rainDelay_minutes_remaining = 0
         self.currentSchedule = []
@@ -1146,7 +1146,7 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
 if __name__ == "__main__":
     try:
         polyglot = udi_interface.Interface([])
-        polyglot.start('4.0.1')
+        polyglot.start('4.0.2')
         polyglot.updateProfile()
         polyglot.setCustomParamsDoc()
         control = Controller(polyglot, 'controller', 'controller', 'Ranchio')
