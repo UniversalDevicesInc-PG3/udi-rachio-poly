@@ -315,7 +315,7 @@ class Controller(udi_interface.Node):
                 _device_id = str(d['id'])
                 _name = str(d['name'])
                 _address = str(d['macAddress']).lower()
-                if _address not in self.nodes:
+                if not self.poly.getNode(_address):
                     #LOGGER.info('Adding Rachio Controller: %s(%s)', _name, _address)
                     self.addNodeQueue(RachioController(self.poly, _address, _address, _name, d))
                 self.configureWebSockets(_device_id)
@@ -1146,7 +1146,7 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
 if __name__ == "__main__":
     try:
         polyglot = udi_interface.Interface([])
-        polyglot.start('4.0.0')
+        polyglot.start('4.0.1')
         polyglot.updateProfile()
         polyglot.setCustomParamsDoc()
         control = Controller(polyglot, 'controller', 'controller', 'Ranchio')
