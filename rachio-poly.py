@@ -45,6 +45,7 @@ class Controller(udi_interface.Node):
     def __init__(self, polyglot, primary, address, name):
         super().__init__(polyglot, primary, address, name)
         self.name = 'Rachio Bridge'
+        self.bridge_address = address
         self.poly = polyglot
         #Queue for nodes to be added in order to prevent a flood of nodes from being created on discovery.  Added version 2.2.0
         self.nodeQueue = {}
@@ -317,7 +318,7 @@ class Controller(udi_interface.Node):
                 _address = str(d['macAddress']).lower()
                 if not self.poly.getNode(_address):
                     #LOGGER.info('Adding Rachio Controller: %s(%s)', _name, _address)
-                    self.addNodeQueue(RachioController(self.poly, _address, _address, _name, d))
+                    self.addNodeQueue(RachioController(self.poly, _address, _address, _name, d, self.bridge_address))
                 self.configureWebSockets(_device_id)
 
         except Exception as ex:
@@ -372,7 +373,7 @@ class Controller(udi_interface.Node):
 
 
 class RachioController(udi_interface.Node):
-    def __init__(self, polyglot, primary, address, name, device):
+    def __init__(self, polyglot, primary, address, name, device, parent):
         super().__init__(polyglot, primary, address, name)
         self.isPrimary = True
         self.primary = primary
@@ -380,7 +381,7 @@ class RachioController(udi_interface.Node):
         self.device = device
         self.device_id = device['id']
         self.lastDeviceUpdateTime = datetime(1970,1,1)
-        self.parent = polyglot.getNode(primary)
+        self.parent = polyglot.getNode(parent)
         
         self.rainDelay_minutes_remaining = 0
         self.currentSchedule = []
@@ -1146,7 +1147,7 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
 if __name__ == "__main__":
     try:
         polyglot = udi_interface.Interface([])
-        polyglot.start('4.0.2')
+        polyglot.start('4.0.3')
         polyglot.updateProfile()
         polyglot.setCustomParamsDoc()
         control = Controller(polyglot, 'controller', 'controller', 'Ranchio')
