@@ -381,7 +381,7 @@ class RachioController(udi_interface.Node):
         self.device = device
         self.device_id = device['id']
         self.lastDeviceUpdateTime = datetime(1970,1,1)
-        self.parent = polyglot.getNode(parent)
+        self.parent = polyglot.getNode(parent)  # This is the Controller class
         
         self.rainDelay_minutes_remaining = 0
         self.currentSchedule = []
@@ -415,7 +415,7 @@ class RachioController(udi_interface.Node):
                 _zone_name = str(z['name'])
                 if not self.poly.getNode(_zone_addr):
                     #LOGGER.info('Adding new Rachio Zone to %s Controller, %s(%s)', self.name, _zone_name, _zone_addr)
-                    self.parent.addNodeQueue(RachioZone(self.poly, self.address, _zone_addr, _zone_name, z, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
+                    self.parent.addNodeQueue(RachioZone(self.poly, self.address, _zone_addr, _zone_name, z, self.device_id, self, self.parent)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
             LOGGER.error('Error discovering and adding Zones on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
@@ -429,7 +429,7 @@ class RachioController(udi_interface.Node):
                 _sched_name = str(s['name'])
                 if not self.poly.getNode(_sched_addr):
                     #LOGGER.info('Adding new Rachio Schedule to %s Controller, %s(%s)', self.name, _sched_name, _sched_addr)
-                    self.parent.addNodeQueue(RachioSchedule(self.poly, self.address, _sched_addr, _sched_name, s, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
+                    self.parent.addNodeQueue(RachioSchedule(self.poly, self.address, _sched_addr, _sched_name, s, self.device_id, self, self.parent)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
             LOGGER.error('Error discovering and adding Schedules on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
@@ -443,7 +443,7 @@ class RachioController(udi_interface.Node):
                 _flex_sched_name = str(f['name'])
                 if not self.poly.getNode(_flex_sched_addr):
                     #LOGGER.info('Adding new Rachio Flex Schedule to %s Controller, %s(%s)',self.name, _flex_sched_name, _flex_sched_addr)
-                    self.parent.addNodeQueue(RachioFlexSchedule(self.poly, self.address, _flex_sched_addr, _flex_sched_name, f, self.device_id, self)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
+                    self.parent.addNodeQueue(RachioFlexSchedule(self.poly, self.address, _flex_sched_addr, _flex_sched_name, f, self.device_id, self, self.parent)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
             LOGGER.error('Error discovering and adding Flex Schedules on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
@@ -698,11 +698,16 @@ class RachioController(udi_interface.Node):
     id = 'rachio_device'
     commands = {'DON': enable, 'DOF': disable, 'QUERY': query, 'STOP': stopCmd, 'RAIN_DELAY': rainDelay}
 
+'''
+Parent is the RachioController, but we also need access to the 
+Controller class as that's where the r_api exists.
+'''
 class RachioZone(udi_interface.Node):
-    def __init__(self, polyglog, primary, address, name, zone, device_id, device):
+    def __init__(self, polyglog, primary, address, name, zone, device_id, device, controller):
         super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
-        self.device = device
+        self.device = device  # RachioController class
+        self.controller = controller
         self.zone = zone
         self.zone_id = zone['id']
         self.name = name
@@ -710,7 +715,7 @@ class RachioZone(udi_interface.Node):
         self.rainDelayExpiration = 0
         self.currentSchedule = []
         self._tries = 0
-        self.parent = polyglot.getNode(primary)
+        self.parent = polyglot.getNode(primary) # RachioController class
 
         polyglot.subscribe(polyglot.START, self.start, address)
 
@@ -846,7 +851,7 @@ class RachioZone(udi_interface.Node):
                         LOGGER.error('Zone %s requested to start but duration specified was zero', self.name)
                         return False
                     _seconds = int(float(_minutes) * 60.)
-                    self.parent.r_api.zone.start(self.zone_id, _seconds)
+                    self.controller.r_api.zone.start(self.zone_id, _seconds)
                     LOGGER.info('Command received to start watering zone %s for %s minutes',self.name, str(_minutes))
                     #self.update_info() Rely on webhook to update on device's change in status
                     self._tries = 0
@@ -874,10 +879,11 @@ class RachioZone(udi_interface.Node):
     commands = {'QUERY': query, 'START': startCmd}
 
 class RachioSchedule(udi_interface.Node):
-    def __init__(self, polyglot, primary, address, name, schedule, device_id, device):
+    def __init__(self, polyglot, primary, address, name, schedule, device_id, device, controller):
         super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
         self.device = device
+        self.controller = controller
         self.schedule = schedule
         self.schedule_id = schedule['id']
         self.name = name
@@ -965,7 +971,7 @@ class RachioSchedule(udi_interface.Node):
         self._tries = 0
         while self._tries < 2: #TODO: the first command to the Rachio server fails frequently for some reason with an SSL WRONG_VERSION_NUMBER error.  This is a temporary workaround to try a couple of times before giving up
             try:
-                self.parent.r_api.schedulerule.start(self.schedule_id)
+                self.controller.r_api.schedulerule.start(self.schedule_id)
                 LOGGER.info('Command received to start watering schedule %s',self.name)
                 #self.update_info() Rely on webhook to update on device's change in status
                 self._tries = 0
@@ -979,7 +985,7 @@ class RachioSchedule(udi_interface.Node):
         self._tries = 0
         while self._tries < 2: #TODO: the first command to the Rachio server fails frequently for some reason with an SSL WRONG_VERSION_NUMBER error.  This is a temporary workaround to try a couple of times before giving up
             try:
-                self.parent.r_api.schedulerule.skip(self.schedule_id)
+                self.controller.r_api.schedulerule.skip(self.schedule_id)
                 LOGGER.info('Command received to skip watering schedule %s',self.name)
                 #self.update_info() Rely on webhook to update on device's change in status
                 self._tries = 0
@@ -996,7 +1002,7 @@ class RachioSchedule(udi_interface.Node):
                 _value = float(command.get('value'))
                 if _value is not None:
                     _value = _value / 100.
-                    self.parent.r_api.schedulerule.seasonalAdjustment(self.schedule_id, _value)
+                    self.controller.r_api.schedulerule.seasonalAdjustment(self.schedule_id, _value)
                     LOGGER.info('Command received to change seasonal adjustment on schedule %s to %s',self.name, str(_value))
                     #self.update_info() Rely on webhook to update on device's change in status
                     self._tries = 0
@@ -1020,10 +1026,11 @@ class RachioSchedule(udi_interface.Node):
     commands = {'QUERY': query, 'START': startCmd, 'SKIP':skip, 'ADJUST':seasonalAdjustment}
 
 class RachioFlexSchedule(udi_interface.Node):
-    def __init__(self, polyglot, primary, address, name, schedule, device_id, device):
+    def __init__(self, polyglot, primary, address, name, schedule, device_id, device, controller):
         super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
         self.device = device
+        self.controller = controller
         self.schedule = schedule
         self.schedule_id = schedule['id']
         self.name = name
@@ -1147,7 +1154,7 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
 if __name__ == "__main__":
     try:
         polyglot = udi_interface.Interface([])
-        polyglot.start('4.0.3')
+        polyglot.start('4.0.4')
         polyglot.updateProfile()
         polyglot.setCustomParamsDoc()
         control = Controller(polyglot, 'controller', 'controller', 'Ranchio')

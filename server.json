@@ -21,8 +21,8 @@
     {
       "title": "udi-Poly-Rachio: Rachio NodeServer for UDI ISY994i Polyglot v3",
       "author": "Brian Feeney",
-      "version": "4.0.2",
-      "date": "April 22, 2022",
+      "version": "4.0.4",
+      "date": "April 24, 2022",
       "source": "https://github.com/UniversalDevicesInc-PG3/udi-rachio-poly",
       "license": "https://raw.githubusercontent.com/UniversalDevicesInc-PG3/udi-rachio-poly/master/LICENSE"
     }
