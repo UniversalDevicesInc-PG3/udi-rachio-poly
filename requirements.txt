@@ -1,2 +1,3 @@
-udi_interface>=3.0.40
-rachiopy==0.1.2
+udi_interface>=3.3.13
+rachiopy==1.1.0
+

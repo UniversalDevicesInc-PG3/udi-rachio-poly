@@ -4,7 +4,7 @@ This is a NodeServer for Rachio irrigation controllers by fahrer16 (Brian Feeney
 Based on template for Polyglot v2 written in Python2/3 by Einstein.42 (James Milne) milne.james@gmail.com
 """
 
-import udi_interface
+from udi_interface import Node,Controller
 import sys
 from socket import error as socket_error
 from copy import deepcopy
@@ -41,7 +41,7 @@ WS_EVENT_TYPES = {
 #class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 #        """Handle requests in a separate thread."""
 
-class Controller(udi_interface.Node):
+class Controller(Node):
     def __init__(self, polyglot, primary, address, name):
         super().__init__(polyglot, primary, address, name)
         self.name = 'Rachio Bridge'
@@ -61,10 +61,18 @@ class Controller(udi_interface.Node):
         polyglot.subscribe(polyglot.START, self.start, address)
         polyglot.subscribe(polyglot.CUSTOMPARAMS, self.parameterHandler)
         polyglot.subscribe(polyglot.POLL, self.poll)
+        polyglot.subscribe(polyglot.WEBHOOK, self.webhook)
+        polyglot.subscribe(polyglot.CUSTOMNS, self.customns)
+        polyglot.subscribe(polyglot.ISY, self.isy)
 
         polyglot.ready()
         polyglot.addNode(self, conn_status="ST")
 
+    def customns(self,params):
+        LOGGER.info(f'params={params}')
+
+    def isy(self,params):
+        LOGGER.info(f'params={params}')
 
     def parameterHandler(self, params):
         self.poly.Notices.clear()
@@ -80,57 +88,7 @@ class Controller(udi_interface.Node):
             LOGGER.error('Error reading Rachio API Key from Polyglot Configuration: %s', str(ex))
             return False
 
-        ###Start HTTP Server for Webhooks####
-        try:
-            if 'port' in params:
-                self.port = int(params['port'])
-            else:
-                self.poly.Notices['port'] = 'No HTTP Port specified in Rachio configuration for Webhook endpoint.  Using port %s for now.', str(self.port)
-                LOGGER.info('No HTTP Port specified in Rachio configuration for Webhook endpoint.  Using port %s for now.  Enter custom parameter of \'port\' in Polyglot configuration.', str(self.port))
-            LOGGER.info('Ensure router/firewall is set to forward requests to polyglot host on port %s',str(self.port))
-        except Exception as ex:
-            LOGGER.error('Error reading webhook Port from Polyglot Configuration: %s', str(ex))
-            return False
-
-        try:
-            if 'host' in params and params['host'] != "":
-                self.httpHost = params['host']
-            else:
-                self.poly.Notices['host'] = 'No HTTP Host specified in Rachio configuration for webhook endpoint.'
-                LOGGER.error('No HTTP Host specified in Rachio configuration for webhook endpoint.  Enter custom parameter of \'host\' in Polyglot configuration.')
-        except Exception as ex:
-            LOGGER.error('Error reading webhook host name from Polyglot Configuration: %s', str(ex))
-            return False
-
-        if 'certfile' in params:
-            certfile = params['certfie']
-            LOGGER.debug('Trying custom key file: {}'.format(certfile))
-        else:
-            certfile = 'certificate.pem'
-            LOGGER.debug('Trying default key file: {}'.format(certfile))
-
-        if Path(certfile).is_file():
-            LOGGER.debug('Certificate file exists, enabling SSL')
-            self.use_ssl = True
-        else:
-            LOGGER.debug('Can\'t locate certificate, SSL disabled')
-
-        try:
-            _localPort = self.port
-            LOGGER.debug('Starting Webhook Server on port %s',str(_localPort))
-            self.webSocketServer = HTTPServer(('', int(_localPort)), webSocketHandler)
-            self.webSocketServer.controller = self #To allow handler to access this class when receiving a request from Rachio servers
-            if self.use_ssl:
-                try:
-                    self.webSocketServer.socket = ssl.wrap_socket(self.webSocketServer.socket, certfile=certfile, server_side=True)
-                except Exception as ex:
-                    LOGGER.error('SSL Error: {}'.format(str(ex)))
-                    self.use_ssl = False
-            self.httpThread = threading.Thread(target=self.webSocketServer.serve_forever, daemon=True).start()
-        except Exception as ex:
-            LOGGER.error('Error starting webhook server: %s', str(ex))
-            return False
-
+        # TODO: Will this work thru portal?
         if self.testWebSocketConnectivity(self.httpHost, self.port):
             #Get Node Addition Interval from Polyglot Configuration (Added version 2.2.0)
             self.wsConnectivityTestRequired = False
@@ -191,14 +149,23 @@ class Controller(udi_interface.Node):
         except Exception as ex:
             LOGGER.error('Error reaching specified host:port externally (%s:%s).  Please ensure entries are correct and the appropriate firewall ports have been opened (for local installs): %s', str(host), str(port), str(ex))
             return False
-            
+
+    # Available information: headers, query, body
+    def webhook(data):  
+        LOGGER.info(f"Webhook received: { data }")
+
+        #response = {
+        #    'abc': 123,
+        #}
+
+        # If the webhook needs a response, use this:
+        #polyglot.webhookResponse(response)
+
     def configureWebSockets(self, WS_deviceID):
-        #Get the webhooks configured for the specified device.  Delete any older, inappropriate webhooks and create new ones as needed
-        if self.use_ssl:
-            _url = 'https://' + _prefix + self.httpHost + ':' + str(self.port)
-        else:
-            _url = 'http://' + self.httpHost + ':' + str(self.port)
-        
+
+        # Use portal for webhooks
+        _url = "https://my.isy.io/api/eisy/pg3/webhook/noresponse/<uuid>/<slot>"
+
         #Build event types array:
         _eventTypes = []
         for key, value in WS_EVENT_TYPES.items():
@@ -372,7 +339,7 @@ class Controller(udi_interface.Node):
     drivers = [{'driver': 'ST', 'value': 0, 'uom': 2}]
 
 
-class RachioController(udi_interface.Node):
+class RachioController(Node):
     def __init__(self, polyglot, primary, address, name, device, parent):
         super().__init__(polyglot, primary, address, name)
         self.isPrimary = True
@@ -702,7 +669,7 @@ class RachioController(udi_interface.Node):
 Parent is the RachioController, but we also need access to the 
 Controller class as that's where the r_api exists.
 '''
-class RachioZone(udi_interface.Node):
+class RachioZone(Node):
     def __init__(self, polyglog, primary, address, name, zone, device_id, device, controller):
         super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
@@ -878,7 +845,7 @@ class RachioZone(udi_interface.Node):
     id = 'rachio_zone'
     commands = {'QUERY': query, 'START': startCmd}
 
-class RachioSchedule(udi_interface.Node):
+class RachioSchedule(Node):
     def __init__(self, polyglot, primary, address, name, schedule, device_id, device, controller):
         super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
@@ -1025,7 +992,7 @@ class RachioSchedule(udi_interface.Node):
     id = 'rachio_schedule'
     commands = {'QUERY': query, 'START': startCmd, 'SKIP':skip, 'ADJUST':seasonalAdjustment}
 
-class RachioFlexSchedule(udi_interface.Node):
+class RachioFlexSchedule(Node):
     def __init__(self, polyglot, primary, address, name, schedule, device_id, device, controller):
         super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
@@ -1153,7 +1120,7 @@ class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.gi
     
 if __name__ == "__main__":
     try:
-        polyglot = udi_interface.Interface([])
+        polyglot = Interface([])
         polyglot.start('4.0.4')
         polyglot.updateProfile()
         polyglot.setCustomParamsDoc()

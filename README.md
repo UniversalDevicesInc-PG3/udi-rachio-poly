@@ -9,12 +9,14 @@ This node server currently implements the Person, Device, and Zone leaves of the
 
 # Installation Instructions:
 1. Backup ISY (just in case)
-2. Install from Polyglot Store
-3. Enter the [Rachio API Key](https://rachio.readme.io/v1.0/docs) in the node server configuration.  See Polyglot Custom Configuration Parameters below.
-4. For **LOCAL** installs (Polisy or Raspberry PI, etc...), the node server must be set up to be able to receive messages from the Rachio cloud, known as [webhooks](https://support.rachio.com/hc/en-us/articles/115010542108-Public-API-documentation#:~:text=Rachio%27s%20public%20API%20has%20rate%20limiting%20in%20order,explore%20a%20non-polling%20method%2C%20we%20do%20support%20webhooks).  This requires a port to be forwarded to your node server instance so that the event can be received.  
-   Select port to use for Rachio websocket traffic to internal Polyglot server (defaults to 3001).  
-  * Forward selected port to internal polyglot server.  
-  * Add host and port keys to polyglot configuration (See custom configuration parameters below).  Note: Use of a Dynamic DNS service for the external host is recommended.
+1. Make sure to [Configure Webooks](https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md)
+  * This feature is only available on eisy and polisy using PG3x.
+  * PG3 remote access must be configured and active. To configure this, login to https://my.isy.io, and under you ISY, use: Select tools | Maintenance | PG3 remote access.
+  * Make sure Remote access is active.
+  * If events are not sent to your nodeserver, make sure you are running the latest version, and proceed with a reconfiguration of remote access.
+  * Please note that configuring remote access will reboot your eisy/polisy.
+1. Install from Polyglot Store
+1. Set [Configuration](POLYGLOT_CONFIG.md)
 
 Any Rachio units associated with the specified API key should now show up in the ISY, hit "Query" if the status fields are empty.  
 
