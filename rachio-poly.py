@@ -4,7 +4,7 @@ This is a NodeServer for Rachio irrigation controllers by fahrer16 (Brian Feeney
 Based on template for Polyglot v2 written in Python2/3 by Einstein.42 (James Milne) milne.james@gmail.com
 """
 
-from udi_interface import Node,Controller
+from udi_interface import Interface,Node,LOGGER
 import sys
 from socket import error as socket_error
 from copy import deepcopy
@@ -20,7 +20,6 @@ import ssl
 from pathlib import Path
 #from socketserver import ThreadingMixIn
  
-LOGGER = udi_interface.LOGGER
 FILE = open('server.json')
 SERVERDATA = json.load(FILE)
 VERSION = SERVERDATA['credits'][0]['version']
@@ -57,22 +56,40 @@ class Controller(Node):
         self.device_id = ''
         self.use_ssl = False
         self.wsConnectivityTestRequired = True
+        self.nsinfo = False
 
         polyglot.subscribe(polyglot.START, self.start, address)
         polyglot.subscribe(polyglot.CUSTOMPARAMS, self.parameterHandler)
         polyglot.subscribe(polyglot.POLL, self.poll)
-        polyglot.subscribe(polyglot.WEBHOOK, self.webhook)
-        polyglot.subscribe(polyglot.CUSTOMNS, self.customns)
-        polyglot.subscribe(polyglot.ISY, self.isy)
+        polyglot.subscribe(polyglot.WEBHOOK, self.handler_webhook)
+        polyglot.subscribe(polyglot.CUSTOMNS, self.handler_customns)
+        polyglot.subscribe(polyglot.NSINFO, self.handler_nsinfo)
+        polyglot.subscribe(polyglot.ISY, self.handler_isy)
+        polyglot.subscribe(polyglot.DISCOVER, self.discover)
 
         polyglot.ready()
         polyglot.addNode(self, conn_status="ST")
 
-    def customns(self,params):
+    def handler_customns(self,key,data):
+        LOGGER.info(f'key={key} data={data}')
+
+    def handler_nsinfo(self,params):
+        LOGGER.info(f'params={params}')
+        self.nsinfo = params
+
+    def handler_isy(self,params):
         LOGGER.info(f'params={params}')
 
-    def isy(self,params):
-        LOGGER.info(f'params={params}')
+    # Available information: headers, query, body
+    def handler_webhook(self,data):  
+        LOGGER.info(f"Webhook received: { data }")
+
+        #response = {
+        #    'abc': 123,
+        #}
+
+        # If the webhook needs a response, use this:
+        #polyglot.webhookResponse(response)
 
     def parameterHandler(self, params):
         self.poly.Notices.clear()
@@ -89,7 +106,7 @@ class Controller(Node):
             return False
 
         # TODO: Will this work thru portal?
-        if self.testWebSocketConnectivity(self.httpHost, self.port):
+        if true: #self.testWebSocketConnectivity(self.httpHost, self.port):
             #Get Node Addition Interval from Polyglot Configuration (Added version 2.2.0)
             self.wsConnectivityTestRequired = False
             try:
@@ -150,21 +167,11 @@ class Controller(Node):
             LOGGER.error('Error reaching specified host:port externally (%s:%s).  Please ensure entries are correct and the appropriate firewall ports have been opened (for local installs): %s', str(host), str(port), str(ex))
             return False
 
-    # Available information: headers, query, body
-    def webhook(data):  
-        LOGGER.info(f"Webhook received: { data }")
-
-        #response = {
-        #    'abc': 123,
-        #}
-
-        # If the webhook needs a response, use this:
-        #polyglot.webhookResponse(response)
-
     def configureWebSockets(self, WS_deviceID):
 
         # Use portal for webhooks
-        _url = "https://my.isy.io/api/eisy/pg3/webhook/noresponse/<uuid>/<slot>"
+        _url = f"https://my.isy.io/api/eisy/pg3/webhook/noresponse/{self.nsinfo['uuid']}/{self.nsinfo['profileNum']}"
+        LOGGER.debug("url=%s",_url)
 
         #Build event types array:
         _eventTypes = []
@@ -172,7 +179,7 @@ class Controller(Node):
             _eventTypes.append({'id':str(value)})
         
         try:
-            _ws = self.r_api.notification.getDeviceWebhook(WS_deviceID)
+            _ws = self.r_api.notification.get_device_webhook(WS_deviceID)
             LOGGER.debug('Obtained webHook information for %s, %s/%s API requests remaining until %s', str(WS_deviceID), str(_ws[0]['x-ratelimit-remaining']), str(_ws[0]['x-ratelimit-limit']),str(_ws[0]['x-ratelimit-reset']))
             _websocketFound = False
             _wsId = ''
@@ -183,13 +190,15 @@ class Controller(Node):
                             #Polyglot webhook but url does not match currently configured host and port
                             LOGGER.info('Webhook %s found but url (%s) is not correct, updating to %s', str(_websocket['id']), str(_websocket['url']), _url)
                             try:
-                                _updateWS = self.r_api.notification.putWebhook(_websocket['id'], 'polyglot', _url, _eventTypes)
-                                LOGGER.debug('Updated webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_updateWS[0]['x-ratelimit-remaining']), str(_updateWS[0]['x-ratelimit-limit']),str(_updateWS[0]['x-ratelimit-reset']))
+                                _updateWS = self.r_api.notification.update(_websocket['id'], 'polyglot', _url, _eventTypes)
+                                LOGGER.debug(f'webhook update returned: {__updateWS}')
+                                LOGGER.info('Updated webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_updateWS[0]['x-ratelimit-remaining']), str(_updateWS[0]['x-ratelimit-limit']),str(_updateWS[0]['x-ratelimit-reset']))
                                 _websocketFound = True
                                 _wsId = _websocket['id']
                             except Exception as ex:
                                 LOGGER.error('Error updating webhook %s url to "%s": %s', str(_websocket['id']), str(_url), str(ex))
                         else:
+                            LOGGER.info(f"webook url is correct: {_websocket['url']}")
                             #URL is OK, check that all webhook event types are included:
                             _allEventsPresent = True
                             for key, value in WS_EVENT_TYPES.items():
@@ -203,37 +212,40 @@ class Controller(Node):
                                     LOGGER.debug("Missing webhook: {}".format(key))
                                     _allEventsPresent = False
                             
-                            if not _allEventsPresent:
+                            if _allEventsPresent:
+                                LOGGER.info(f"webook events are correct")
+                                # Webshook definition is OK!
+                                _websocketFound = True
+                                _wsId = _websocket['id']
+                            else:
                                 #at least one websocket event is missing from the definition on the Rachio servers, updated the webhook:
                                 LOGGER.info('Webhook %s found but webhook event is missing, updating', str(_websocket['id']))
                                 try:
-                                    _updateWS = self.r_api.notification.putWebhook(_websocket['id'], 'polyglot', _url, _eventTypes)
+                                    _updateWS = self.r_api.notification.update(_websocket['id'], 'polyglot', _url, _eventTypes)
+                                    LOGGER.debug(f'webhook update returned: {__updateWS}')
                                     LOGGER.debug('Updated webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_updateWS[0]['x-ratelimit-remaining']), str(_updateWS[0]['x-ratelimit-limit']),str(_updateWS[0]['x-ratelimit-reset']))
                                     _websocketFound = True
                                     _wsId = _websocket['id']
                                 except Exception as ex:
                                     LOGGER.error('Error updating webhook %s events: %s', str(_websocket['id']), str(ex))
-                            else:
-                                #Webshook definition is OK!
-                                _websocketFound = True
-                                _wsId = _websocket['id']
                                 
                     elif  _websocket['externalId'] == 'polyglot' and _websocketFound: #This is an additional polyglot-created webhook
                         LOGGER.info('Polyglot webhook %s found but polyglot already has a webhook defined (%s).  Deleting this webhook', str(_websocket['id']), str(_wsId))
-                        _deleteWs = self.r_api.notification.deleteWebhook(_websocket['id'])
+                        _deleteWs = self.r_api.notification.delete(_websocket['id'])
+                        LOGGER.debug(f'webhook delete returned: {__deleteWS}')
                         LOGGER.debug('Deleted webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_deleteWS[0]['x-ratelimit-remaining']), str(_deleteWS[0]['x-ratelimit-limit']),str(_deleteWS[0]['x-ratelimit-reset']))
             
             if not _websocketFound:
                 #No Polyglot webhooks were found, create one:
                 LOGGER.info('No Polyglot webhooks were found for device %s, creating a new webhook for Polyglot', str(WS_deviceID))
                 try:
-                    _createWS = self.r_api.notification.postWebhook(WS_deviceID, 'polyglot', _url, _eventTypes)
+                    _createWS = self.r_api.notification.add(WS_deviceID, 'polyglot', _url, _eventTypes)
                     _resp = str(_createWS[1])
                     LOGGER.debug('Created webhook for device %s. "%s". %s/%s API requests remaining until %s', str(WS_deviceID), str(_resp), str(_createWS[0]['x-ratelimit-remaining']), str(_createWS[0]['x-ratelimit-limit']),str(_createWS[0]['x-ratelimit-reset']))
                 except Exception as ex:
                     LOGGER.error('Error creating webhook for device %s: %s', str(WS_deviceID), str(ex))
         except Exception as ex:
-            LOGGER.error('Error configuring webhooks for device %s: %s', str(WS_deviceID), str(ex))
+            LOGGER.error('Error configuring webhooks for device %s: %s', str(WS_deviceID), exc_info=True)
 
     
     def poll(self, polltype):
@@ -261,18 +273,19 @@ class Controller(Node):
             node.discover()
 
     def discover(self, command=None):
-        LOGGER.info('Starting discovery on %s', self.name)
+        LOGGER.info('Starting discovery on %s api_key=%s', self.name, self.api_key)
         try:
             self.r_api = Rachio(self.api_key)
-            _person_id = self.r_api.person.getInfo()
+            _person_id = self.r_api.person.info()
+            LOGGER.debug(f"person={_person_id}")
             self.person_id = _person_id[1]['id']
             self.person = self.r_api.person.get(self.person_id) #returns json containing all info associated with person (devices, zones, schedules, flex schedules, and notifications)
             LOGGER.debug('Obtained Person ID (%s), %s/%s API requests remaining until %s', str(self.person_id), str(_person_id[0]['x-ratelimit-remaining']), str(_person_id[0]['x-ratelimit-limit']),str(_person_id[0]['x-ratelimit-reset']))
         except Exception as ex:
             try:
-                LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s. %s/%s API requests remaining until %s', str(ex), str(_person_id[0]['x-ratelimit-remaining']), str(_person_id[0]['x-ratelimit-limit']),str(_person_id[0]['x-ratelimit-reset']))
+                LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s. %s/%s API requests remaining until %s', str(ex), str(_person_id[0]['x-ratelimit-remaining']), str(_person_id[0]['x-ratelimit-limit']),str(_person_id[0]['x-ratelimit-reset']),exc_info=True)
             except:
-                LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s.',str(ex))
+                LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s',exc_info=True)
             return False
 
         try:
@@ -437,7 +450,7 @@ class RachioController(Node):
               
             _secSinceSchedUpdate = (datetime.now() - self.lastSchedUpdateTime).total_seconds()
             if (_secSinceSchedUpdate > 5 and force and self.discoverComplete) or _secSinceSchedUpdate > 3600:
-                _sched = self.parent.r_api.device.getCurrentSchedule(self.device_id)
+                _sched = self.parent.r_api.device.current_schedule(self.device_id)
                 self.currentSchedule = _sched[1]
                 self.lastSchedUpdateTime = datetime.now()
                 LOGGER.debug('Obtained Device Schedule for %s, %s/%s API requests remaining until %s', str(self.device_id), str(_sched[0]['x-ratelimit-remaining']), str(_sched[0]['x-ratelimit-limit']),str(_sched[0]['x-ratelimit-reset']))
@@ -590,7 +603,7 @@ class RachioController(Node):
         self._tries = 0
         while self._tries < 2: #TODO: the first command to the Rachio server fails frequently for some reason with an SSL WRONG_VERSION_NUMBER error.  This is a temporary workaround to try a couple of times before giving up
             try:
-                self.parent.r_api.device.on(self.device_id)
+                self.parent.r_api.device.turn_on(self.device_id)
                 #self.update_info() Rely on webhook to update on device's change in status
                 LOGGER.info('Command received to enable %s Controller',self.name)
                 self._tries = 0
@@ -604,7 +617,7 @@ class RachioController(Node):
         self._tries = 0
         while self._tries < 2: #TODO: the first command to the Rachio server fails frequently for some reason with an SSL WRONG_VERSION_NUMBER error.  This is a temporary workaround to try a couple of times before giving up
             try:
-                self.parent.r_api.device.off(self.device_id)
+                self.parent.r_api.device.turn_off(self.device_id)
                 #self.update_info() Rely on webhook to update on device's change in status
                 LOGGER.info('Command received to disable %s Controller',self.name)
                 self._tries = 0
@@ -618,7 +631,7 @@ class RachioController(Node):
         self._tries = 0
         while self._tries < 2: #TODO: the first command to the Rachio server fails frequently for some reason with an SSL WRONG_VERSION_NUMBER error.  This is a temporary workaround to try a couple of times before giving up
             try:
-                self.parent.r_api.device.stopWater(self.device_id)
+                self.parent.r_api.device.stop_ater(self.device_id)
                 LOGGER.info('Command received to stop watering on %s Controller',self.name)
                 #self.update_info() Rely on webhook to update on device's change in status
                 self._tries = 0
@@ -639,7 +652,7 @@ class RachioController(Node):
             while self._tries < 2: #TODO: the first command to the Rachio server fails frequently for some reason with an SSL WRONG_VERSION_NUMBER error.  This is a temporary workaround to try a couple of times before giving up
                 try:
                     _seconds = int(float(_minutes) * 60.)
-                    self.parent.r_api.device.rainDelay(self.device_id, _seconds)
+                    self.parent.r_api.device.rain_delay(self.device_id, _seconds)
                     #self.update_info() Rely on webhook to update on device's change in status
                     self._tries = 0
                     return True
@@ -969,7 +982,7 @@ class RachioSchedule(Node):
                 _value = float(command.get('value'))
                 if _value is not None:
                     _value = _value / 100.
-                    self.controller.r_api.schedulerule.seasonalAdjustment(self.schedule_id, _value)
+                    self.controller.r_api.schedulerule.seasonal_adjustment(self.schedule_id, _value)
                     LOGGER.info('Command received to change seasonal adjustment on schedule %s to %s',self.name, str(_value))
                     #self.update_info() Rely on webhook to update on device's change in status
                     self._tries = 0
