@@ -15,10 +15,9 @@ This node server currently implements the Person, Device, and Zone leaves of the
 ## Polyglot Custom Configuration Parameters
 See [Configuration](POLYGLOT_CONFIG.md)
 
-## TODO
-* Parse change json to determine updates instead of query
-  * Currently it just sees what device changed, and requeries that device which probably annoy's the rachio servers.
-* Stop querying status of all devices on longPoll.
+## Issues
+
+All issues are in [Github Rachio Issues](https://github.com/UniversalDevicesInc-PG3/udi-rachio-poly/issues) or you can report them on the [UDI Rachio Subforum](https://forum.universal-devices.com/forum/354-rachio/)
 
 ## Version History:
 IMPORTANT: You must enable PG3 remote access as detailed in [Configuration](POLYGLOT_CONFIG.md)
