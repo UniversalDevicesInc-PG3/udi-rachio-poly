@@ -5,27 +5,18 @@ and now developed by JimBo.Automates
 Based on template for Polyglot v2 written in Python2/3 by Einstein.42 (James Milne) milne.james@gmail.com
 """
 
-from udi_interface import Interface,Node,LOGGER
+# TODO: Move to init when nodes are reorganized
+VERSION="5.0.0"
+
+from udi_interface import Interface,Node,LOGGER,Custom
 import sys
-from socket import error as socket_error
-from copy import deepcopy
 import json, time
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import http.client
 import re
 from threading import Timer #Added version 2.2.0 for node addition queue
-import threading
 from rachiopy import Rachio
-import ssl
 import random
-from pathlib import Path
-#from socketserver import ThreadingMixIn
- 
-FILE = open('server.json')
-SERVERDATA = json.load(FILE)
-VERSION = SERVERDATA['credits'][0]['version']
-FILE.close()
     
 WS_EVENT_TYPES = {
         "DEVICE_STATUS": 5,
@@ -56,11 +47,12 @@ class Controller(Node):
         self.device_id = ''
         self.use_ssl = False
         self.wsConnectivityTestRequired = True
-        self.nsinfo = False
+        self.nsinfo = None
         self.discover_st = None
 
+        self.Params      = Custom(polyglot, 'customparams')
         polyglot.subscribe(polyglot.START, self.start, address)
-        polyglot.subscribe(polyglot.CUSTOMPARAMS, self.parameterHandler)
+        polyglot.subscribe(polyglot.CUSTOMPARAMS, self.handler_customparams)
         polyglot.subscribe(polyglot.POLL, self.poll)
         polyglot.subscribe(polyglot.WEBHOOK, self.handler_webhook)
         polyglot.subscribe(polyglot.CUSTOMNS, self.handler_customns)
@@ -77,37 +69,48 @@ class Controller(Node):
     def handler_nsinfo(self,params):
         LOGGER.info(f'params={params}')
         self.nsinfo = params
+        LOGGER.debug(f'nsinfo={self.nsinfo}')
 
     def handler_isy(self,params):
         LOGGER.info(f'params={params}')
 
-    def parameterHandler(self, params):
+    def handler_customparams(self, params):
         self.poly.Notices.clear()
-        try:
-            if 'api_key' in params and params['api_key'] != "":
-                self.api_key = params['api_key']
-            else:
-                LOGGER.error('Rachio API key required in order to establish connection.  Enter custom parameter of \'api_key\' in Polyglot configuration.  See "https://rachio.readme.io/v1.0/docs" for instructions on how to obtain Rachio API Key.')
-                self.poly.Notices['api'] = 'Rachio API key required in order to establish connection.  See "https://rachio.readme.io/v1.0/docs" for instructions on how to obtain Rachio API Key.'
-                return False
-        
-        except Exception as ex:
-            LOGGER.error('Error reading Rachio API Key from Polyglot Configuration: %s', str(ex))
-            return False
+        self.Params.load(params)
+        # Delete old unused params, must return because we get called when it's deleted.
+        if "host" in params:
+            self.Params.delete('host')
+            return
+        if "port" in params:
+            self.Params.delete('port')
+            return
+        #
+        # Make sure params exist
+        #
+        defaults = {
+            "api_key": "",
+            "nodeAdditionInterval": "1",
+        }
+        for param in defaults:
+            if not param in params:
+                self.Params[param] = defaults[param]
+                return
 
-        #Get Node Addition Interval from Polyglot Configuration (Added version 2.2.0)
-        self.wsConnectivityTestRequired = False
+        if self.Params['api_key'] == "":
+            LOGGER.error('Rachio API key required in order to establish connection.  Enter custom parameter of \'api_key\' in Polyglot configuration.  See "https://rachio.readme.io/v1.0/docs" for instructions on how to obtain Rachio API Key.')
+            self.poly.Notices['api'] = 'Rachio API key required in order to establish connection.  See "https://rachio.readme.io/v1.0/docs" for instructions on how to obtain Rachio API Key.'
+            return False
+        self.api_key = self.Params['api_key']
+
         try:
-            if 'nodeAdditionInterval' in params:
-                _nodeAdditionInterval = params['nodeAdditionInterval']
-                if _nodeAdditionInterval >= 0 and _nodeAdditionInterval <= 60:
-                    self.nodeAdditionInterval = _nodeAdditionInterval
-                else:
-                    LOGGER.error('Node Addition Interval configured but outside of permissible range of 0 - 60 seconds, defaulting to %s second(s)', str(self.nodeAdditionInterval))
-            else:
-                LOGGER.info('Node Addition Interval not configured, defaulting to %s second(s).  If a different time is needed, enter a custom parameter with a key of \'nodeAdditionInterval\' and a value in seconds in order to change interval.', str(self.nodeAdditionInterval))
+            self.nodeAdditionInterval = int(self.Params['nodeAdditionInterval'])
+            if self.nodeAdditionInterval < 0 or self.nodeAdditionInterval > 60:
+                self.nodeAdditionInterval = 1
+                LOGGER.error('Node Addition Interval configured but outside of permissible range of 0 - 60 seconds, defaulting to %s second(s)', str(self.nodeAdditionInterval))
         except Exception as ex:
-            LOGGER.error('Error reading Rachio Node Addition Interval from Polyglot Configuration: %s', str(ex))
+            self.nodeAdditionInterval = 1
+            LOGGER.error('Error checking nodeAdditionalInterval %s: %s',
+                         str(self.Params['nodeAdditionInterval']), str(ex), exc_info=True)
 
         self.discover()
 
@@ -156,41 +159,58 @@ class Controller(Node):
         except Exception as ex:
             LOGGER.error('Error processing webhook request: %s', str(ex), exc_info=True)
             #self.send_error(404) #v2.4.2: Removed http server response to invalid requests
-        #response = {
-        #    'abc': 123,
-        #}
 
-        # If the webhook needs a response, use this:
-        #polyglot.webhookResponse(response)
-
-    def testWebSocketConnectivity(self):
+    def test_webhook(self):
+        host = 'my.isy.io'
+        port = 443
+        # Make sure we have nsinfo
+        cnt = 300
+        while self.nsinfo is None and cnt > 0:
+            # Warn after a couple seconds
+            if cnt < 298:
+                msg = f'Unable to test webooks nsinfo={self.nsinfo} not initialized yet cnt={cnt}'
+                LOGGER.warning(msg)
+                self.poly.Notices['api'] = msg
+            time.sleep(1)
+            cnt -= 1
+        if self.nsinfo is None:
+            msg = "Timed out waiting for nsinfo handler, see Plugin log"
+            LOGGER.error(msg)
+            self.poly.Notices['api'] = msg
+            self.poly.stop()
+            return False
+        self.poly.Notices.delete('api')
+        #
+        # All good, start the test
+        #
         try:
-            host = 'my.isy.io'
-            port = 443
-            conn = http.client.HTTPSConnection(host, port=port)
-            msg = "Unknown Error"
-            _headers = {'Content-Type': 'application/json'}
-            _url = f"/api/eisy/pg3/webhook/response/{self.nsinfo['uuid']}/{self.nsinfo['profileNum']}"
-            LOGGER.info('Testing connectivity to %s:%s url:%s', str(host), str(port), _url)
+            if 'uuid' in self.nsinfo and 'profileNum' in self.nsinfo:
+                conn = http.client.HTTPSConnection(host, port=port)
+                msg = "Unknown Error"
+                _headers = {'Content-Type': 'application/json'}
+                _url = f"/api/eisy/pg3/webhook/response/{self.nsinfo['uuid']}/{self.nsinfo['profileNum']}"
+                LOGGER.info('Testing connectivity to %s:%s url:%s', str(host), str(port), _url)
 
-            conn.request('POST', _url, json.dumps({'test': self.random}), headers=_headers )
-            _resp = conn.getresponse()
-            headers = _resp.getheaders()
-            LOGGER.debug(f"Headers: {headers}")
-            content_type = _resp.getheader('Content-Type')
-            _respContent = _resp.read().decode()
-            conn.close()
-            if content_type and content_type.startswith('text/html;'):
-                LOGGER.debug('Webhook connectivity test response = %s',str(_respContent))
-                if _respContent == "success":
-                    LOGGER.info('Connectivity test to %s:%s succeeded', str(host), str(port))
-                    self.poly.Notices.delete('webhook')
-                    self.setDriver('GV0',1)
-                    return True
+                conn.request('POST', _url, json.dumps({'test': self.random}), headers=_headers )
+                _resp = conn.getresponse()
+                headers = _resp.getheaders()
+                LOGGER.debug(f"Headers: {headers}")
+                content_type = _resp.getheader('Content-Type')
+                _respContent = _resp.read().decode()
+                conn.close()
+                if content_type and content_type.startswith('text/html;'):
+                    LOGGER.debug('Webhook connectivity test response = %s',str(_respContent))
+                    if _respContent == "success":
+                        LOGGER.info('Connectivity test to %s:%s succeeded', str(host), str(port))
+                        self.poly.Notices.delete('webhook')
+                        self.setDriver('GV0',1)
+                        return True
+                    else:
+                        msg = f'Unexpected content: {_respContent}'
                 else:
-                    msg = f'Unexpected content: {_respContent}'
+                    msg = f'Unexpected content_type "{content_type}" {_respContent}'
             else:
-                msg = f'Unexpected content_type "{content_type}" {_respContent}'
+                msg = f'Missing uuid and/or profileNum in nsinfo'
             LOGGER.error(msg)
         except Exception as ex:
             msg = f'Exception: {ex}'
@@ -199,7 +219,7 @@ class Controller(Node):
         self.poly.Notices['api'] = f'Connectivity test to {host}:{port} was not successful. ' + msg + "<br>Please confirm portal webhooks are enabled, See <a href='https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md#requirements'  target='_blank'>Webooks Requirements</a>"
         return False
 
-    def configureWebSockets(self, WS_deviceID):
+    def configure_webhook(self, WS_deviceID):
 
         # Use portal for webhooks
         _url = f"https://my.isy.io/api/eisy/pg3/webhook/noresponse/{self.nsinfo['uuid']}/{self.nsinfo['profileNum']}"
@@ -286,6 +306,9 @@ class Controller(Node):
             if self.discover_st is False:
                 if not self.discover():
                     return False
+            else:
+                # Make sure webooks are still working
+                self.test_webhook()
             try:
                 for node in self.poly.nodes():
                     node.update_info(force=False,queryAPI=False)
@@ -312,7 +335,10 @@ class Controller(Node):
     def discover(self, command=None):
         LOGGER.info('Starting discovery on %s api_key=%s', self.name, self.api_key)
         self.discover_st = None
-        if not self.testWebSocketConnectivity():
+        #
+        # Make sure webhook is working
+        #
+        if not self.test_webhook():
             LOGGER.error("Unable to discover, Portal websocket test failed")
             self.discover_st = False
             return False
@@ -343,7 +369,7 @@ class Controller(Node):
                 if not self.poly.getNode(_address):
                     #LOGGER.info('Adding Rachio Controller: %s(%s)', _name, _address)
                     self.addNodeQueue(RachioController(self.poly, _address, _address, _name, d, self.bridge_address))
-                self.configureWebSockets(_device_id)
+                self.configure_webhook(_device_id)
 
         except Exception as ex:
             LOGGER.error('Error during Rachio device discovery: %s', str(ex))
@@ -1137,15 +1163,11 @@ class RachioFlexSchedule(Node):
 if __name__ == "__main__":
     try:
         polyglot = Interface([])
-        polyglot.start('4.0.4')
+        polyglot.start(VERSION)
         polyglot.updateProfile()
         polyglot.setCustomParamsDoc()
         control = Controller(polyglot, 'controller', 'controller', 'Ranchio')
         polyglot.runForever()
     except (KeyboardInterrupt, SystemExit):
-        try:
-            control.webSocketServer.server_close()
-        except:
-            pass
         sys.exit(0)
 

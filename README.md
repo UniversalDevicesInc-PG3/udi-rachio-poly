@@ -9,24 +9,28 @@ This node server currently implements the Person, Device, and Zone leaves of the
 
 # Installation Instructions:
 1. Backup ISY (just in case)
-1. Make sure to [Configure Webooks](https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md)
-  * This feature is only available on eisy and polisy using PG3x.
-  * PG3 remote access must be configured and active. To configure this, login to https://my.isy.io, and under you ISY, use: Select tools | Maintenance | PG3 remote access.
-  * Make sure Remote access is active.
-  * If events are not sent to your nodeserver, make sure you are running the latest version, and proceed with a reconfiguration of remote access.
-  * Please note that configuring remote access will reboot your eisy/polisy.
 1. Install from Polyglot Store
-1. Set [Configuration](POLYGLOT_CONFIG.md)
+1. Set [Configuration](POLYGLOT_CONFIG.md) params
 
 Any Rachio units associated with the specified API key should now show up in the ISY, hit "Query" if the status fields are empty.  
 
 ## Polyglot Custom Configuration Parameters
-* REQUIRED: Key:'api_key' Value: See "https://rachio.readme.io/v1.0/docs" for instructions on how to obtain Rachio API Key.
-* REQUIRED: Key: 'host' Value: External address for polyglot server (External static IP or Dynamic DNS host name).  Not required or used for polyglot cloud.
-* OPTIONAL: Key: 'port' Value: External port (integer) for polyglot server.  Note: This port must be opened through firewall and forwarded to the internal polyglot server.  Defaults to '3001' if no entry given but opening port is not optional (required for Rachio websockets).  ot required or used for polyglot cloud.
-* OPTIONAL: Key:'nodeAdditionInterval' Value: On discovery, nodes will be added at this interval (in seconds).
- 
+See [Configuration](POLYGLOT_CONFIG.md)
+
+## TODO
+* Use different icon for schedules
+* Reorganize main program into nodes/*
+* Parse change json to determine updates instead of query
+  * Currently it just sees what device changed, and requeries that device which probably annoy's the rachio servers.
+* Stop querying status of all devices on longPoll.
+
 ## Version History:
+IMPORTANT: You must enable PG3 remote access as detailed in [Configuration](POLYGLOT_CONFIG.md)
+* 5.0.0: With original Authors permissing, taken over by JimBo.Automates
+  * First release of Standard Perpetual License for $20
+  * Use Portal Webhooks instead of needing to open up a local port
+  * General code cleanup and reorganization
+* 4.0.0-4.0.4: Updated for Polyglot v3 by Bob Paauwe @bpaauwe
 * 2.0.0: Rewritten for Polyglot v2.
 * 2.1.0: Updated to have each Rachio Device be a primary node
 * 2.2.0: Added node addition queue with a default interval of 1 second and removed forced Driver reporting to improve performance in large installs.
