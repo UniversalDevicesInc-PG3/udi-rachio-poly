@@ -1,6 +1,6 @@
 # RachioBridge (Virtual Cloud Interface)
 ND-rachio-NAME = Rachio Bridge
-ND-rachio-ICON = Irrigation
+ND-rachio-ICON = GenericCtl
 ST-rapi-ST-NAME = Node Server Connected
 ST-rapi-GV0-NAME = Portal Webook Status
 CMD-rapi-DISCOVER-NAME = Discover
@@ -13,7 +13,7 @@ CST-2 = Failed
 
 # RachioController
 ND-rachio_device-NAME = Rachio Device
-ND-rachio_device-ICON = Irrigation
+ND-rachio_device-ICON = GenericCtl
 ST-rdev-NAME = Rachio Device
 ST-rdev-ST-NAME = Watering
 ST-rdev-GV0-NAME = Connected
@@ -54,7 +54,7 @@ CMD-rzone-QUERY-NAME = Query
 
 # RachioSchedule
 ND-rachio_schedule-NAME = Rachio Schedule
-ND-rachio_schedule-ICON = Irrigation
+ND-rachio_schedule-ICON = Input
 ST-rsched-NAME = Rachio Schedule
 ST-rsched-ST-NAME = Running
 ST-rsched-GV0-NAME = Enabled
@@ -68,7 +68,7 @@ CMD-rsched-QUERY-NAME = Query
 
 # RachioFlexSchedule
 ND-rachio_flexschedule-NAME = Rachio Flex Schedule
-ND-rachio_flexschedule-ICON = Irrigation
+ND-rachio_flexschedule-ICON = Input
 ST-rflex-NAME = Rachio Flex Schedule
 ST-rflex-ST-NAME = Running
 ST-rflex-GV0-NAME = Enabled

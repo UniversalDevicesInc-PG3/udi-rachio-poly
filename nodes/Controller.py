@@ -1,5 +1,6 @@
-from udi_interface import Node,LOGGER,Custom,VERSION
-from nodes import RachioController
+
+from udi_interface import Node,LOGGER,Custom
+from nodes import VERSION,RachioController
 import json, time
 import http.client
 from threading import Timer #Added version 2.2.0 for node addition queue

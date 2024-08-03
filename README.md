@@ -16,8 +16,6 @@ This node server currently implements the Person, Device, and Zone leaves of the
 See [Configuration](POLYGLOT_CONFIG.md)
 
 ## TODO
-* Use different icon for schedules
-* Reorganize main program into nodes/*
 * Parse change json to determine updates instead of query
   * Currently it just sees what device changed, and requeries that device which probably annoy's the rachio servers.
 * Stop querying status of all devices on longPoll.
