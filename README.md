@@ -12,8 +12,6 @@ This node server currently implements the Person, Device, and Zone leaves of the
 1. Install from Polyglot Store
 1. Set [Configuration](POLYGLOT_CONFIG.md) params
 
-Any Rachio units associated with the specified API key should now show up in the ISY, hit "Query" if the status fields are empty.  
-
 ## Polyglot Custom Configuration Parameters
 See [Configuration](POLYGLOT_CONFIG.md)
 
