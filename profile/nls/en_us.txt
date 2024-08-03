@@ -2,8 +2,14 @@
 ND-rachio-NAME = Rachio Bridge
 ND-rachio-ICON = Irrigation
 ST-rapi-ST-NAME = Node Server Connected
+ST-rapi-GV0-NAME = Portal Webook Status
 CMD-rapi-DISCOVER-NAME = Discover
 CMD-rapi-QUERY-NAME = Query All Devices
+
+# Controller Status
+CST-0 = Disconnected
+CST-1 = Connected
+CST-2 = Failed
 
 # RachioController
 ND-rachio_device-NAME = Rachio Device

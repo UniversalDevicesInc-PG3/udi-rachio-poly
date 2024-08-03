@@ -3,7 +3,8 @@
   <nodeDef id="rachio" nls="rapi">
     <editors />
     <sts>
-      <st id="ST" editor="bool" />
+      <st id="ST" editor="cst" />
+      <st id="GV0" editor="bool" /> <!-- Portal Webhook Status -->
     </sts>
     <cmds>
       <sends />

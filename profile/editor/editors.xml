@@ -4,6 +4,11 @@
     <range uom="2" subset="0,1"/>
   </editor>
 
+  <!-- Node Server Status -->
+  <editor id="cst">
+    <range uom="25" subset="0,1,2" nls="CST"/>
+  </editor>
+
   <!-- Rachio OnOff editor -->
   <editor id="onoff">
     <range uom="78" subset="0,100" />

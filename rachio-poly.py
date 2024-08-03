@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-This is a NodeServer for Rachio irrigation controllers by fahrer16 (Brian Feeney)
+This is a NodeServer for Rachio irrigation controllers originaly by fahrer16 (Brian Feeney)
+and now developed by JimBo.Automates
 Based on template for Polyglot v2 written in Python2/3 by Einstein.42 (James Milne) milne.james@gmail.com
 """
 
@@ -17,6 +18,7 @@ from threading import Timer #Added version 2.2.0 for node addition queue
 import threading
 from rachiopy import Rachio
 import ssl
+import random
 from pathlib import Path
 #from socketserver import ThreadingMixIn
  
@@ -37,14 +39,12 @@ WS_EVENT_TYPES = {
         "DELTA": 14
     }
 
-#class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
-#        """Handle requests in a separate thread."""
-
 class Controller(Node):
     def __init__(self, polyglot, primary, address, name):
         super().__init__(polyglot, primary, address, name)
         self.name = 'Rachio Bridge'
         self.bridge_address = address
+        self.random = random.random()
         self.poly = polyglot
         #Queue for nodes to be added in order to prevent a flood of nodes from being created on discovery.  Added version 2.2.0
         self.nodeQueue = {}
@@ -57,6 +57,7 @@ class Controller(Node):
         self.use_ssl = False
         self.wsConnectivityTestRequired = True
         self.nsinfo = False
+        self.discover_st = None
 
         polyglot.subscribe(polyglot.START, self.start, address)
         polyglot.subscribe(polyglot.CUSTOMPARAMS, self.parameterHandler)
@@ -80,17 +81,6 @@ class Controller(Node):
     def handler_isy(self,params):
         LOGGER.info(f'params={params}')
 
-    # Available information: headers, query, body
-    def handler_webhook(self,data):  
-        LOGGER.info(f"Webhook received: { data }")
-
-        #response = {
-        #    'abc': 123,
-        #}
-
-        # If the webhook needs a response, use this:
-        #polyglot.webhookResponse(response)
-
     def parameterHandler(self, params):
         self.poly.Notices.clear()
         try:
@@ -105,67 +95,109 @@ class Controller(Node):
             LOGGER.error('Error reading Rachio API Key from Polyglot Configuration: %s', str(ex))
             return False
 
-        # TODO: Will this work thru portal?
-        if true: #self.testWebSocketConnectivity(self.httpHost, self.port):
-            #Get Node Addition Interval from Polyglot Configuration (Added version 2.2.0)
-            self.wsConnectivityTestRequired = False
-            try:
-                if 'nodeAdditionInterval' in params:
-                    _nodeAdditionInterval = params['nodeAdditionInterval']
-                    if _nodeAdditionInterval >= 0 and _nodeAdditionInterval <= 60:
-                        self.nodeAdditionInterval = _nodeAdditionInterval
-                    else:
-                        LOGGER.error('Node Addition Interval configured but outside of permissible range of 0 - 60 seconds, defaulting to %s second(s)', str(self.nodeAdditionInterval))
+        #Get Node Addition Interval from Polyglot Configuration (Added version 2.2.0)
+        self.wsConnectivityTestRequired = False
+        try:
+            if 'nodeAdditionInterval' in params:
+                _nodeAdditionInterval = params['nodeAdditionInterval']
+                if _nodeAdditionInterval >= 0 and _nodeAdditionInterval <= 60:
+                    self.nodeAdditionInterval = _nodeAdditionInterval
                 else:
-                    LOGGER.info('Node Addition Interval not configured, defaulting to %s second(s).  If a different time is needed, enter a custom parameter with a key of \'nodeAdditionInterval\' and a value in seconds in order to change interval.', str(self.nodeAdditionInterval))
-            except Exception as ex:
-                LOGGER.error('Error reading Rachio Node Addition Interval from Polyglot Configuration: %s', str(ex))
+                    LOGGER.error('Node Addition Interval configured but outside of permissible range of 0 - 60 seconds, defaulting to %s second(s)', str(self.nodeAdditionInterval))
+            else:
+                LOGGER.info('Node Addition Interval not configured, defaulting to %s second(s).  If a different time is needed, enter a custom parameter with a key of \'nodeAdditionInterval\' and a value in seconds in order to change interval.', str(self.nodeAdditionInterval))
+        except Exception as ex:
+            LOGGER.error('Error reading Rachio Node Addition Interval from Polyglot Configuration: %s', str(ex))
 
-            self.discover()
-        else:
-            LOGGER.error('Webhook connectivity test failed, exiting')
+        self.discover()
 
         LOGGER.debug('Rachio "start" routine complete')
 
     def start(self):
         LOGGER.info('Starting Rachio Polyglot v3 NodeServer version {}'.format(VERSION))
-        
-        
-    def testWebSocketConnectivity(self, host, port):
+        self.setDriver('GV0',0)
+
+    # Available information: headers, query, body
+    def handler_webhook(self,data):  
+        LOGGER.debug(f"Webhook received: { data }")
+
         try:
-            if self.use_ssl:
-                conn = http.client.HTTPSConnection(host, port=port)
-                LOGGER.info('Testing connectivity to %s:%s', str(host), str(port))
-            else:
-                conn = http.client.HTTPConnection(host, port=port)
-                LOGGER.info('Testing connectivity to %s:%s', str(host), str(port))
-                
-            _headers = {'Content-Type': 'application/json'}
-            _prefix = ""
-            conn.request('GET', _prefix + '/test', headers=_headers)
-            _resp = conn.getresponse()
-            content_type = _resp.getheader('Content-Type')
-            conn.close()
-            if content_type and content_type.startswith('application/json'):
-                _respContent = _resp.read().decode()
-                LOGGER.debug('Webhook connectivity test response = %s',str(_respContent))
-                _content = json.loads(_respContent)
-                if 'success' in _content:
-                    if _content['success'] == "True":
-                        LOGGER.info('Connectivity test to %s:%s succeeded', str(host), str(port))
-                        return True
-                    else:
-                        LOGGER.error('Connectivity test to %s:%s was not successful', str(host), str(port))
-                        return False
+            #self.data_string = self.rfile.read(int(self.headers['Content-Length'])).decode('utf-8')
+            _json_data = json.loads(data['body'])
+            LOGGER.info('Received webhook notification from Rachio: %s',str(_json_data))
+
+            if 'test' in _json_data:
+                if _json_data['test'] == self.random:
+                    # It's me
+                    LOGGER.info("It's me, sending response")
+                    self.poly.webhookResponse("success",200)
+                    return True
                 else:
-                    LOGGER.error('Connectivity test to %s:%s was not successful, unexpected content', str(host), str(port))
+                    LOGGER.error("It's not me? %s",_json_data)
                     return False
-            else:
-                LOGGER.error('Connectivity test to %s:%s was not successful, unexpected response', str(host), str(port))
-                return False
+
+            if 'deviceId' in _json_data:
+                _deviceID = _json_data['deviceId']
+                _devCount = 0
+                for node in self.poly.nodes():
+                    if node.device_id == _deviceID:
+                        _devCount += 1
+                        # TODO: Should parse the incoming data for change instead of queryAPI?
+                        LOGGER.info("Updating %s %s ID=%s", node.address, node.name, node.device_id)
+                        node.update_info(force=False,queryAPI=True)
+
+                if _devCount > 0:
+                    self.poly.webhookResponse("success",204)
+                    #self.send_response(204) #v2.4.2: Removed http server response to invalid requests
+                    #self.end_headers()
+                else:
+                    LOGGER.warning("Unable to find device %s",_deviceID)
+                        
         except Exception as ex:
-            LOGGER.error('Error reaching specified host:port externally (%s:%s).  Please ensure entries are correct and the appropriate firewall ports have been opened (for local installs): %s', str(host), str(port), str(ex))
-            return False
+            LOGGER.error('Error processing webhook request: %s', str(ex), exc_info=True)
+            #self.send_error(404) #v2.4.2: Removed http server response to invalid requests
+        #response = {
+        #    'abc': 123,
+        #}
+
+        # If the webhook needs a response, use this:
+        #polyglot.webhookResponse(response)
+
+    def testWebSocketConnectivity(self):
+        try:
+            host = 'my.isy.io'
+            port = 443
+            conn = http.client.HTTPSConnection(host, port=port)
+            msg = "Unknown Error"
+            _headers = {'Content-Type': 'application/json'}
+            _url = f"/api/eisy/pg3/webhook/response/{self.nsinfo['uuid']}/{self.nsinfo['profileNum']}"
+            LOGGER.info('Testing connectivity to %s:%s url:%s', str(host), str(port), _url)
+
+            conn.request('POST', _url, json.dumps({'test': self.random}), headers=_headers )
+            _resp = conn.getresponse()
+            headers = _resp.getheaders()
+            LOGGER.debug(f"Headers: {headers}")
+            content_type = _resp.getheader('Content-Type')
+            _respContent = _resp.read().decode()
+            conn.close()
+            if content_type and content_type.startswith('text/html;'):
+                LOGGER.debug('Webhook connectivity test response = %s',str(_respContent))
+                if _respContent == "success":
+                    LOGGER.info('Connectivity test to %s:%s succeeded', str(host), str(port))
+                    self.poly.Notices.delete('webhook')
+                    self.setDriver('GV0',1)
+                    return True
+                else:
+                    msg = f'Unexpected content: {_respContent}'
+            else:
+                msg = f'Unexpected content_type "{content_type}" {_respContent}'
+            LOGGER.error(msg)
+        except Exception as ex:
+            msg = f'Exception: {ex}'
+            LOGGER.error(msg,exc_info=True)
+        self.setDriver('GV0',0)
+        self.poly.Notices['api'] = f'Connectivity test to {host}:{port} was not successful. ' + msg + "<br>Please confirm portal webhooks are enabled, See <a href='https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md#requirements'  target='_blank'>Webooks Requirements</a>"
+        return False
 
     def configureWebSockets(self, WS_deviceID):
 
@@ -250,6 +282,10 @@ class Controller(Node):
     
     def poll(self, polltype):
         if 'longPoll' in polltype:
+            # If previous discover failed, try again
+            if self.discover_st is False:
+                if not self.discover():
+                    return False
             try:
                 for node in self.poly.nodes():
                     node.update_info(force=False,queryAPI=False)
@@ -258,6 +294,7 @@ class Controller(Node):
 
     def update_info(self, force=False, queryAPI=True):
         #Nothing to update for this node
+        LOGGER.info("%s %s", self.address, self.name)
         pass
 
     def query(self, command = None):
@@ -274,6 +311,12 @@ class Controller(Node):
 
     def discover(self, command=None):
         LOGGER.info('Starting discovery on %s api_key=%s', self.name, self.api_key)
+        self.discover_st = None
+        if not self.testWebSocketConnectivity():
+            LOGGER.error("Unable to discover, Portal websocket test failed")
+            self.discover_st = False
+            return False
+
         try:
             self.r_api = Rachio(self.api_key)
             _person_id = self.r_api.person.info()
@@ -286,6 +329,7 @@ class Controller(Node):
                 LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s. %s/%s API requests remaining until %s', str(ex), str(_person_id[0]['x-ratelimit-remaining']), str(_person_id[0]['x-ratelimit-limit']),str(_person_id[0]['x-ratelimit-reset']),exc_info=True)
             except:
                 LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s',exc_info=True)
+            self.discover_st = False
             return False
 
         try:
@@ -303,7 +347,10 @@ class Controller(Node):
 
         except Exception as ex:
             LOGGER.error('Error during Rachio device discovery: %s', str(ex))
+            self.discover_st = False
+            return False
 
+        self.discover_st = True
         return True
 
     def addNodeQueue(self, node):
@@ -349,7 +396,10 @@ class Controller(Node):
 
     id = 'rachio'
     commands = {'DISCOVER': discoverCMD, 'QUERY': query}
-    drivers = [{'driver': 'ST', 'value': 0, 'uom': 2}]
+    drivers = [
+        {'driver': 'ST',  'value': 0, 'uom': 2, 'name': 'Nodeserver Online'},
+        {'driver': 'GV0', 'value': 0, 'uom': 2, 'name': 'Portal Webhook Status'}
+    ]
 
 
 class RachioController(Node):
@@ -442,26 +492,24 @@ class RachioController(Node):
                             
         except Exception as ex:
             LOGGER.error('Connection Error on %s Rachio Controller API Request. This could mean an issue with internet connectivity or Rachio servers, normally safe to ignore. %s', self.name, str(ex))
-            
         return self.device
             
     def getCurrentSchedule(self, force=False):
         try:
-              
             _secSinceSchedUpdate = (datetime.now() - self.lastSchedUpdateTime).total_seconds()
             if (_secSinceSchedUpdate > 5 and force and self.discoverComplete) or _secSinceSchedUpdate > 3600:
                 _sched = self.parent.r_api.device.current_schedule(self.device_id)
                 self.currentSchedule = _sched[1]
                 self.lastSchedUpdateTime = datetime.now()
                 LOGGER.debug('Obtained Device Schedule for %s, %s/%s API requests remaining until %s', str(self.device_id), str(_sched[0]['x-ratelimit-remaining']), str(_sched[0]['x-ratelimit-limit']),str(_sched[0]['x-ratelimit-reset']))
-
         except Exception as ex:
             LOGGER.error('Connection Error on %s Rachio Controller current schedule API Request. This could mean an issue with internet connectivity or Rachio servers, normally safe to ignore. %s', self.name, str(ex))
             return False
-            
         return self.currentSchedule
 
     def update_info(self, force=False, queryAPI=True):
+        LOGGER.info("%s %s", self.address, self.name)
+
         _running = False #initialize variable so that it could be used even if there was not a need to update the running status of the controller
         self.getDeviceInfo(force=queryAPI)
         self.getCurrentSchedule(force=queryAPI)
@@ -707,6 +755,7 @@ class RachioZone(Node):
         pass
 
     def update_info(self, force=False, queryAPI=True):
+        LOGGER.info("%s %s", self.address, self.name)
         _running = False #initialize variable so that it could be used even if there was not a need to update the running status of the zone
         #Updating info for zone %s with id %s, force=%s',self.address, str(self.zone_id), str(force))
         try:
@@ -883,6 +932,7 @@ class RachioSchedule(Node):
         pass
         
     def update_info(self, force=False, queryAPI=True):
+        LOGGER.info("%s %s", self.address, self.name)
         _running = False #initialize variable so that it could be used even if there was not a need to update the running status of the schedule
         try:
             _deviceInfo = self.device.getDeviceInfo(force=queryAPI)
@@ -1029,6 +1079,7 @@ class RachioFlexSchedule(Node):
         pass
 
     def update_info(self, force=False, queryAPI=True):
+        LOGGER.info("%s %s", self.address, self.name)
         _running = False #initialize variable so that it could be used even if there was not a need to update the running status of the schedule
         try:
             _deviceInfo = self.device.getDeviceInfo(force=queryAPI)
@@ -1082,54 +1133,6 @@ class RachioFlexSchedule(Node):
 
     id = 'rachio_flexschedule'
     commands = {'QUERY': query}
-    
-class webSocketHandler(BaseHTTPRequestHandler): #From example at https://gist.github.com/mdonkers/63e115cc0c79b4f6b8b3a6b797e485c7
-    # protocol_version='HTTP/1.1'
-       
-    def do_POST(self):
-        try:
-            self.data_string = self.rfile.read(int(self.headers['Content-Length'])).decode('utf-8')
-            _json_data = json.loads(self.data_string)
-            LOGGER.debug('Received webhook notification from Rachio: %s',str(_json_data))
-            
-            if 'deviceId' in _json_data:
-                _deviceID = _json_data['deviceId']
-                _devCount = 0
-                for node in self.server.controller.nodes:
-                    if self.server.controller.nodes[node].device_id == _deviceID:
-                        _devCount += 1
-                        self.server.controller.nodes[node].update_info(force=False,queryAPI=True)
-                        
-                if _devCount > 0:
-                    self.send_response(204) #v2.4.2: Removed http server response to invalid requests
-                    self.end_headers()
-                        
-        except Exception as ex:
-            LOGGER.error('Error processing POST request to HTTP Server: %s', str(ex))
-            #self.send_error(404) #v2.4.2: Removed http server response to invalid requests
-        return
-            
-    def do_GET(self):
-        try:
-            #_prefix = ""
-            #_prefix = '/ns/' + self.server.controller.worker
-            if self.server.controller.wsConnectivityTestRequired:
-                self.send_response(200)
-                self.send_header('Content-Type','application/json')
-                data = '{"success": "True"}'
-                self.send_header('Content-Length', len(data))
-                self.end_headers()
-                self.wfile.write(data.encode('utf-8'))
-            else:
-                #v2.4.2: Removed http server response to invalid requests
-                pass
-                #self.send_response(400, 'Bad Request: record does not exist')
-                #self.send_header('Content-Type','application/json')
-                #self.end_headers()
-        except Exception as ex:
-            LOGGER.error('Error processing GET request to HTTP Server: %s', str(ex))
-            #self.send_error(404) #v2.4.2: Removed http server response to invalid requests
-        return
     
 if __name__ == "__main__":
     try:
