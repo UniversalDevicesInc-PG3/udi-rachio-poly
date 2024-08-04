@@ -1,5 +1,5 @@
 """ Node classes used by the Rachio Plugin """
-VERSION = "5.0.1"
+VERSION = "5.0.2"
 from .RachioZone import RachioZone
 from .RachioSchedule import RachioSchedule
 from .RachioFlexSchedule import RachioFlexSchedule
