@@ -36,6 +36,7 @@ IMPORTANT: You must enable PG3 remote access as detailed in [Configuration](POLY
 * 5.0.0: With original Authors permissing, taken over by JimBo.Automates
   * First release of Standard Perpetual License for $20
   * Use Portal Webhooks instead of needing to open up a local port
+  * Updated to latest RachioPy-0.1.2
   * General code cleanup and reorganization
 * 4.0.0-4.0.4: Updated for Polyglot v3 by Bob Paauwe @bpaauwe
 * 2.0.0: Rewritten for Polyglot v2.
