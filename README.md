@@ -12,6 +12,18 @@ This node server currently implements the Person, Device, and Zone leaves of the
 1. Install from Polyglot Store
 1. Set [Configuration](POLYGLOT_CONFIG.md) params
 
+## Upgrading from 4.x
+
+1. Open Your PG3X UI [Using Your IP](https://xxx.xxx.xxx.xxx:3000) or [Eisy](https://eisy.local:3000/) or [Polisy](https://polisy.local:3000/)
+1. Login, default user admin password admin
+1. Click on "Plugin Store"
+1. Click "Refresh Store"
+1. Scroll down to "Rachio" and click on it
+1. Click the "Install" button next to 5.x.x Standard Perpetual, this will popup a form and should say:
+  * Rachio 4.0.4 is already installed in slot <n>		"Reinstall here?"
+  * Or do you wish to install Rachio into a new slot on the target device?
+1. Click the "Reinstall here?" button
+
 ## Polyglot Custom Configuration Parameters
 See [Configuration](POLYGLOT_CONFIG.md)
 
