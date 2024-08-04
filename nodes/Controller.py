@@ -232,12 +232,13 @@ class Controller(Node):
                             LOGGER.info('Webhook %s found but url (%s) is not correct, updating to %s', str(_websocket['id']), str(_websocket['url']), _url)
                             try:
                                 _updateWS = self.r_api.notification.update(_websocket['id'], 'polyglot', _url, _eventTypes)
-                                LOGGER.debug(f'webhook update returned: {__updateWS}')
+                                LOGGER.debug(f'webhook update returned: {_updateWS}')
                                 LOGGER.info('Updated webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_updateWS[0]['x-ratelimit-remaining']), str(_updateWS[0]['x-ratelimit-limit']),str(_updateWS[0]['x-ratelimit-reset']))
                                 _websocketFound = True
                                 _wsId = _websocket['id']
                             except Exception as ex:
-                                LOGGER.error('Error updating webhook %s url to "%s": %s', str(_websocket['id']), str(_url), str(ex))
+                                LOGGER.error('Error updating webhook %s url to "%s": %s', str(_websocket['id']),
+                                             str(_url), str(ex), exc_info=True)
                         else:
                             LOGGER.info(f"webook url is correct: {_websocket['url']}")
                             #URL is OK, check that all webhook event types are included:
@@ -263,17 +264,18 @@ class Controller(Node):
                                 LOGGER.info('Webhook %s found but webhook event is missing, updating', str(_websocket['id']))
                                 try:
                                     _updateWS = self.r_api.notification.update(_websocket['id'], 'polyglot', _url, _eventTypes)
-                                    LOGGER.debug(f'webhook update returned: {__updateWS}')
+                                    LOGGER.debug(f'webhook update returned: {_updateWS}')
                                     LOGGER.debug('Updated webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_updateWS[0]['x-ratelimit-remaining']), str(_updateWS[0]['x-ratelimit-limit']),str(_updateWS[0]['x-ratelimit-reset']))
                                     _websocketFound = True
                                     _wsId = _websocket['id']
                                 except Exception as ex:
-                                    LOGGER.error('Error updating webhook %s events: %s', str(_websocket['id']), str(ex))
+                                    LOGGER.error('Error updating webhook %s events: %s', str(_websocket['id']),
+                                                 str(ex), exc_info=True)
                                 
                     elif  _websocket['externalId'] == 'polyglot' and _websocketFound: #This is an additional polyglot-created webhook
                         LOGGER.info('Polyglot webhook %s found but polyglot already has a webhook defined (%s).  Deleting this webhook', str(_websocket['id']), str(_wsId))
                         _deleteWs = self.r_api.notification.delete(_websocket['id'])
-                        LOGGER.debug(f'webhook delete returned: {__deleteWS}')
+                        LOGGER.debug(f'webhook delete returned: {_deleteWS}')
                         LOGGER.debug('Deleted webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_deleteWS[0]['x-ratelimit-remaining']), str(_deleteWS[0]['x-ratelimit-limit']),str(_deleteWS[0]['x-ratelimit-reset']))
             
             if not _websocketFound:
@@ -284,9 +286,11 @@ class Controller(Node):
                     _resp = str(_createWS[1])
                     LOGGER.debug('Created webhook for device %s. "%s". %s/%s API requests remaining until %s', str(WS_deviceID), str(_resp), str(_createWS[0]['x-ratelimit-remaining']), str(_createWS[0]['x-ratelimit-limit']),str(_createWS[0]['x-ratelimit-reset']))
                 except Exception as ex:
-                    LOGGER.error('Error creating webhook for device %s: %s', str(WS_deviceID), str(ex))
+                    LOGGER.error('Error creating webhook for device %s: %s', 
+                                 str(WS_deviceID), str(ex), exc_info=True)
         except Exception as ex:
-            LOGGER.error('Error configuring webhooks for device %s: %s', str(WS_deviceID), exc_info=True)
+            LOGGER.error('Error configuring webhooks for device %s: %s', 
+                         str(WS_deviceID), str(ex), exc_info=True)
 
     
     def poll(self, polltype):

@@ -2,6 +2,7 @@
 from datetime import datetime
 from nodes import RachioZone,RachioSchedule,RachioFlexSchedule
 from udi_interface import Node,LOGGER
+import time
 
 class RachioController(Node):
     def __init__(self, polyglot, primary, address, name, device, parent):
@@ -49,11 +50,13 @@ class RachioController(Node):
                     self.parent.addNodeQueue(RachioZone(self.poly, self.address, _zone_addr, _zone_name, z, self.device_id, self, self.parent)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
-            LOGGER.error('Error discovering and adding Zones on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
+            LOGGER.error('Error discovering and adding Zones on Rachio Controller %s (%s): %s',
+                         self.name, self.address, str(ex), exc_info=True)
         
         try:
             _schedules = self.device['scheduleRules']
-            LOGGER.info('%i Rachio schedules found on "%s" controller. Adding to ISY', len(_schedules), self.name)
+            LOGGER.info('%i Rachio schedules found on "%s" controller. Adding to ISY',
+                        len(_schedules), self.name)
             for s in _schedules:
                 _sched_id = str(s['id'])
                 _sched_addr = self.address + _sched_id[-2:] #construct address for this schedule (mac address of controller appended with last 2 characters of schedule unique id) because ISY limit is 14 characters
@@ -63,7 +66,8 @@ class RachioController(Node):
                     self.parent.addNodeQueue(RachioSchedule(self.poly, self.address, _sched_addr, _sched_name, s, self.device_id, self, self.parent)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
-            LOGGER.error('Error discovering and adding Schedules on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
+            LOGGER.error('Error discovering and adding Schedules on Rachio Controller %s (%s): %s',
+                         self.name, self.address, str(ex), exc_info=True)
 
         try:
             _flex_schedules = self.device['flexScheduleRules']
@@ -77,7 +81,8 @@ class RachioController(Node):
                     self.parent.addNodeQueue(RachioFlexSchedule(self.poly, self.address, _flex_sched_addr, _flex_sched_name, f, self.device_id, self, self.parent)) #v2.2.0, updated to add node to queue, rather that adding to ISY immediately
         except Exception as ex:
             _success = False
-            LOGGER.error('Error discovering and adding Flex Schedules on Rachio Controller %s (%s): %s', self.name, self.address, str(ex))
+            LOGGER.error('Error discovering and adding Flex Schedules on Rachio Controller %s (%s): %s',
+                         self.name, self.address, str(ex), exc_info=True)
 
         return _success
         
@@ -92,7 +97,8 @@ class RachioController(Node):
                 LOGGER.debug('Obtained Device Info for %s, %s/%s API requests remaining until %s', str(self.device_id), str(_device[0]['x-ratelimit-remaining']), str(_device[0]['x-ratelimit-limit']),str(_device[0]['x-ratelimit-reset']))
                             
         except Exception as ex:
-            LOGGER.error('Connection Error on %s Rachio Controller API Request. This could mean an issue with internet connectivity or Rachio servers, normally safe to ignore. %s', self.name, str(ex))
+            LOGGER.error('Connection Error on %s Rachio Controller API Request. This could mean an issue with internet connectivity or Rachio servers, normally safe to ignore. %s',
+                         self.name, str(ex), exc_info=True)
         return self.device
             
     def getCurrentSchedule(self, force=False):
@@ -104,7 +110,8 @@ class RachioController(Node):
                 self.lastSchedUpdateTime = datetime.now()
                 LOGGER.debug('Obtained Device Schedule for %s, %s/%s API requests remaining until %s', str(self.device_id), str(_sched[0]['x-ratelimit-remaining']), str(_sched[0]['x-ratelimit-limit']),str(_sched[0]['x-ratelimit-reset']))
         except Exception as ex:
-            LOGGER.error('Connection Error on %s Rachio Controller current schedule API Request. This could mean an issue with internet connectivity or Rachio servers, normally safe to ignore. %s', self.name, str(ex))
+            LOGGER.error('Connection Error on %s Rachio Controller current schedule API Request. This could mean an issue with internet connectivity or Rachio servers, normally safe to ignore. %s',
+                         self.name, str(ex), exc_info=True)
             return False
         return self.currentSchedule
 

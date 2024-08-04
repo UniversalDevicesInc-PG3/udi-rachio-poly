@@ -7,7 +7,7 @@ Controller class as that's where the r_api exists.
 from udi_interface import Node,LOGGER
 
 class RachioZone(Node):
-    def __init__(self, polyglog, primary, address, name, zone, device_id, device, controller):
+    def __init__(self, polyglot, primary, address, name, zone, device_id, device, controller):
         super().__init__(polyglot, primary, address, name)
         self.device_id = device_id
         self.device = device  # RachioController class
