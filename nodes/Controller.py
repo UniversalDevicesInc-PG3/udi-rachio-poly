@@ -15,17 +15,6 @@ from rachiopy import Rachio
 # {'id': 11, 'name': 'RAIN_SENSOR_DETECTION_EVENT', 'type': 'WEBHOOK'}, 
 # {'id': 12, 'name': 'ZONE_DELTA', 'type': 'WEBHOOK'}, 
 # {'id': 14, 'name': 'DELTA', 'type': 'WEBHOOK'}
-WS_EVENT_TYPES = {
-        "DEVICE_STATUS": 5,
-        "RAIN_DELAY": 6,
-        "WEATHER_INTELLIGENCE": 7,
-        "WATER_BUDGET": 8,
-        "SCHEDULE_STATUS": 9,
-        "ZONE_STATUS": 10,
-        "RAIN_SENSOR_DETECTION": 11,
-        "ZONE_DELTA": 12,
-        "DELTA": 14
-    }
 
 class Controller(Node):
     def __init__(self, polyglot, primary, address, name):
@@ -155,7 +144,7 @@ class Controller(Node):
                     LOGGER.warning("Unable to find device %s",_deviceID)
                         
         except Exception as ex:
-            LOGGER.error('Error processing webhook request: %s', str(ex), exc_info=True)
+            self.inc_error(f'{ex} processing webhook request:')
             self.poly.webhookResponse("failed",400)
 
     def nsinfo_done(self):
@@ -170,9 +159,7 @@ class Controller(Node):
             time.sleep(1)
             cnt -= 1
         if self.nsinfo is None:
-            msg = "Timed out waiting for nsinfo handler, see Plugin log"
-            LOGGER.error(msg)
-            self.poly.Notices['nsinfo'] = msg
+            self.inc_error('Timed out waiting for nsinfo handler, see Plugin log')
             self.poly.stop()
             return False
         self.poly.Notices.delete('nsinfo')
@@ -189,9 +176,9 @@ class Controller(Node):
         # All good, start the test
         #
         try:
+            msg = "Unknown Error"
             if 'uuid' in self.nsinfo and 'profileNum' in self.nsinfo:
                 conn = http.client.HTTPSConnection(host, port=port)
-                msg = "Unknown Error"
                 _headers = {'Content-Type': 'application/json'}
                 _url = f"/api/eisy/pg3/webhook/response/{self.nsinfo['uuid']}/{self.nsinfo['profileNum']}"
                 LOGGER.info('Testing connectivity to %s:%s url:%s', str(host), str(port), _url)
@@ -216,10 +203,9 @@ class Controller(Node):
                     msg = f'Unexpected content_type "{content_type}" {_respContent}'
             else:
                 msg = f'Missing uuid and/or profileNum in nsinfo'
-            LOGGER.error(msg)
+            self.inc_error(msg)
         except Exception as ex:
-            msg = f'Exception: {ex}'
-            LOGGER.error(msg,exc_info=True)
+            self.inc_error(f'Exception: {ex}')
         self.setDriver('GV0',0)
         self.poly.Notices['api'] = f'Connectivity test to {host}:{port} was not successful. ' + msg + "<br>Please confirm portal webhooks are enabled, See <a href='https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md#requirements'  target='_blank'>Webooks Requirements</a>"
         return False
@@ -248,7 +234,7 @@ class Controller(Node):
                 if type['name'] != 'WATER_BUDGET':
                     _eventTypes.append({'id':type['id']})
         except Exception as ex:
-            LOGGER.error('Error building event types from %s: %s',
+            LOGGER.error('Building event types from %s: %s',
                         str(eventTypeResponse), str(ex), exc_info=True)
             res = False
         try:
@@ -277,9 +263,8 @@ class Controller(Node):
                                         if d['id'] == type['id']:
                                             _found = True
                                             break
-                                    # WATER_BUDGET is never returned
-                                    if not _found and key != 'WATER_BUDGET':
-                                        LOGGER.debug("Missing webhook: {}".format(key))
+                                    if not _found:
+                                        LOGGER.debug("Missing webhook: {}".format(type['name']))
                                         _allEventsPresent = False
 
                                 if _allEventsPresent:
@@ -288,7 +273,7 @@ class Controller(Node):
                                     updateWebhook = False
                                 else:
                                     #at least one websocket event is missing from the definition on the Rachio servers, updated the webhook:
-                                    LOGGER.info('Webhook %s found but webhook event is missing, updating', str(_websocket['id']))
+                                    LOGGER.info('Webhook %s found but webhook event(s) is missing, updating', str(_websocket['id']))
 
                             if updateWebhook:
                                 try:
@@ -297,15 +282,15 @@ class Controller(Node):
                                         self.r_api.notification.update(_websocket['id'], 'polyglot', _url, _eventTypes)
                                     )
                                 except Exception as ex:
-                                    LOGGER.error('Error updating webhook %s: %s', str(_websocket['id']),
-                                                str(ex), exc_info=True)
+                                    self.inc_error(f"Updating webhook {_websocket['id']}: {ex}")
                                     res = False
-                    else: 
+                        else: 
                             # This is an additional polyglot-created webhook
                             LOGGER.info('Polyglot webhook %s found but polyglot already has a webhook defined (%s).  Deleting this webhook', str(_websocket['id']), str(_wsId))
-                            _deleteWs = self.r_api.notification.delete(_websocket['id'])
-                            LOGGER.debug(f'webhook delete returned: {_deleteWS}')
-                            LOGGER.debug('Deleted webhook %s, %s/%s API requests remaining until %s', str(_websocket['id']), str(_deleteWS[0]['x-ratelimit-remaining']), str(_deleteWS[0]['x-ratelimit-limit']),str(_deleteWS[0]['x-ratelimit-reset']))
+                            if self.parseResponse(self.r_api.notification.delete(_websocket['id'])):
+                                LOGGER.debug(f'webhook success!')
+                            else:
+                                LOGGER.error(f'webhook delete failed!')
             
             if _wsId is None:
                 #No Polyglot webhooks were found, create one:
@@ -315,12 +300,10 @@ class Controller(Node):
                     _resp = str(_createWS[1])
                     LOGGER.debug('Created webhook for device %s. "%s". %s/%s API requests remaining until %s', str(WS_deviceID), str(_resp), str(_createWS[0]['x-ratelimit-remaining']), str(_createWS[0]['x-ratelimit-limit']),str(_createWS[0]['x-ratelimit-reset']))
                 except Exception as ex:
-                    LOGGER.error('Error creating webhook for device %s: %s', 
-                                 str(WS_deviceID), str(ex), exc_info=True)
+                    self.inc_error(f'Deleting webhook for device {WS_deviceID}: {ex}')
                     res = False
         except Exception as ex:
-            LOGGER.error('Error configuring webhooks for device %s: %s', 
-                         str(WS_deviceID), str(ex), exc_info=True)
+            self.inc_error(f'Configuring webhook for device {WS_deviceID}: {ex}')
             res = False
         self.configure_webhook_st = res
         return res
@@ -343,13 +326,10 @@ class Controller(Node):
                 self.poly.Notices.delete('parseResponse')
                 return True
             else:
-                msg = f'Rachio API Call error {response[1]}'
-                LOGGER.error(msg)
-                self.poly.Notices['parseResponse'] = msg
+                self.inc_api_error(f'Rachio API Call error {response[1]}')
                 return False
         except Exception as ex:
-            LOGGER.error('Error parsing reponse: %s: %s',
-                         str(ex), response, exc_info=True)
+            self.inc_error(f'{ex} Parsing reponse: {response}')
 
     def poll(self, polltype):
         if 'longPoll' in polltype:
@@ -364,7 +344,7 @@ class Controller(Node):
                 for node in self.poly.nodes():
                     node.update_info(force=False,queryAPI=False)
             except Exception as ex:
-                LOGGER.error('Error running longPoll on %s: %s', self.name, str(ex))
+                self.inc_error(f'{ex} Running longPoll')
 
     def update_info(self, force=False, queryAPI=True):
         #Nothing to update for this node
@@ -376,7 +356,7 @@ class Controller(Node):
             for node in self.poly.nodes():
                 node.update_info(force=True)
         except Exception as ex:
-            LOGGER.error('Error running query on %s: %s', self.name, str(ex))
+            self.inc_error(f'{ex} Running query')
 
     def discoverCMD(self, command=None):
         # This is command called by ISY discover button
@@ -388,7 +368,7 @@ class Controller(Node):
         self.discover_st = None
 
         if not self.test_webhook():
-            LOGGER.error('Unable to discover until webooks are working')
+            LOGGER.inc_error('Unable to discover until webooks are working properly')
             self.discover_st = False
             return False
 
@@ -398,12 +378,9 @@ class Controller(Node):
             LOGGER.debug(f"person={_person_id}")
             self.person_id = _person_id[1]['id']
             self.person = self.r_api.person.get(self.person_id) #returns json containing all info associated with person (devices, zones, schedules, flex schedules, and notifications)
-            LOGGER.debug('Obtained Person ID (%s), %s/%s API requests remaining until %s', str(self.person_id), str(_person_id[0]['x-ratelimit-remaining']), str(_person_id[0]['x-ratelimit-limit']),str(_person_id[0]['x-ratelimit-reset']))
+            self.parseResponse(self.person)
         except Exception as ex:
-            try:
-                LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s. %s/%s API requests remaining until %s', str(ex), str(_person_id[0]['x-ratelimit-remaining']), str(_person_id[0]['x-ratelimit-limit']),str(_person_id[0]['x-ratelimit-reset']),exc_info=True)
-            except:
-                LOGGER.error('Connection Error on RachioControl discovery, may be temporary. %s',exc_info=True)
+            self.inc_error(f'{ex} Running discover')
             self.discover_st = False
             return False
 
@@ -421,8 +398,7 @@ class Controller(Node):
                 self.configure_webhook(_device_id)
 
         except Exception as ex:
-            LOGGER.error('Error during Rachio device discovery: %s', 
-                         str(ex), exc_info=True)
+            self.inc_error(f'{ex} Running discover add devices')
             self.discover_st = False
             return False
 
@@ -436,7 +412,7 @@ class Controller(Node):
             self.nodeQueue[node.address] = node
             self._startNodeAdditionDelayTimer()
         except Exception as ex:
-            LOGGER.error('Error queuing node for addition: %s'. str(ex))
+            self.inc_error(f'{ex} Queing node for addition')
 
     def _startNodeAdditionDelayTimer(self): #Added version 2.2.0
         try:
@@ -447,7 +423,7 @@ class Controller(Node):
             LOGGER.debug("Starting node addition delay timer for %s second(s)", str(self.nodeAdditionInterval))
             return True
         except Exception as ex:
-            LOGGER.error('Error starting node addition delay timer: %s', str(ex))
+            self.inc_error(f'{ex} Starting node addition delay timer')
             return False
 
     def _addNodesFromQueue(self): #Added version 2.2.0
@@ -464,15 +440,57 @@ class Controller(Node):
             else:
                 LOGGER.info('No nodes pending addition')
         except Exception as ex:
-            LOGGER.error('Error encountered adding node from queue: %s', str(ex))
-
+            self.inc_error(f'{ex} Adding node from queue')
 
     def delete(self):
         LOGGER.info('Deleting %s', self.name)
 
+    def err_notice(self,name,err_str):
+            self.poly.Notices[name] = f"ERROR: {datetime.now().strftime('%m/%d/%Y %H:%M:%S')} See log for: {err_str}"
+
+    def set_error(self,val=None,force=False):
+        if val is None:
+            val = 0
+        self.errors = val
+        self.setDriver('ERR',self.errors,force=force)
+
+    def inc_error(self,err_str="error",exc_info=True,val=None):
+        if val is None:
+            val = 1
+        self.set_error(self.errors + val)
+        if err_str is not None:
+            self.err_notice('ns_error',err_str)
+            LOGGER.error(err_str,exc_info=exc_info)
+
+    def dec_error(self,val=None):
+        if val is None:
+            val = 1
+        self.set_error(self.errors - val)
+
+    def set_api_error(self,val=None,exc_info=True,force=False):
+        if val is None:
+            val = 0
+        self.api_errors = val
+        self.setDriver('GV1',self.errors,force=force)
+
+    def inc_api_error(self,err_str="api_error",val=None):
+        if val is None:
+            val = 1
+        self.set_api_error(self.api_errors + 1)
+        if err_str is not None:
+            self.err_notice('api_error',err_str)
+            LOGGER.error(err_str,exc_info=exc_info)
+
+    def dec_api_error(self,val=None):
+        if val is None:
+            val = 1
+        self.set_api_error(self.api_errors - val)
+
     id = 'rachio'
     commands = {'DISCOVER': discoverCMD, 'QUERY': query}
     drivers = [
-        {'driver': 'ST',  'value': 0, 'uom': 2, 'name': 'Nodeserver Online'},
-        {'driver': 'GV0', 'value': 0, 'uom': 2, 'name': 'Portal Webhook Status'}
+        {'driver': 'ST',  'value': 1, 'uom': 2, 'name': 'Nodeserver Online'},
+        {'driver': 'GV0', 'value': 0, 'uom': 2, 'name': 'Portal Webhook Status'},
+        {"driver": "ERR", "value": 0, "uom": 56, "name": "NodeServer Errors"},
+        {'driver': 'GV1', 'value': 0, 'uom': 56, 'name': 'Rachio API Errors'}
     ]

@@ -9,6 +9,11 @@
     <range uom="25" subset="0,1,2" nls="CST"/>
   </editor>
 
+  <!-- Errors -->
+  <editor id="int">
+    <range uom="56" min="0" max="10000000" prec="0" step="1"/>
+  </editor>
+
   <!-- Rachio OnOff editor -->
   <editor id="onoff">
     <range uom="78" subset="0,100" />

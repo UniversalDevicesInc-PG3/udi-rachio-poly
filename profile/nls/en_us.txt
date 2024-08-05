@@ -3,6 +3,9 @@ ND-rachio-NAME = Rachio Bridge
 ND-rachio-ICON = GenericCtl
 ST-rapi-ST-NAME = Node Server Connected
 ST-rapi-GV0-NAME = Portal Webook Status
+ST-rapi-ERR-NAME = NodeServer Errors
+ST-rapi-GV1-NAME = Rachio API Errors
+
 CMD-rapi-DISCOVER-NAME = Discover
 CMD-rapi-QUERY-NAME = Query All Devices
 
