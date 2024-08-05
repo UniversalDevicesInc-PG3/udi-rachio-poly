@@ -2,6 +2,7 @@
 from udi_interface import Node,LOGGER,Custom
 from nodes import VERSION,RachioController
 import json, time, random, pprint
+from datetime import datetime
 import http.client
 from threading import Timer #Added version 2.2.0 for node addition queue
 from rachiopy import Rachio
@@ -36,6 +37,8 @@ class Controller(Node):
         self.nsinfo = None
         self.configure_webhook_st = False
         self.discover_st = None
+        self.errors = 0
+        self.api_errors = 0
 
         self.Params      = Custom(polyglot, 'customparams')
         polyglot.subscribe(polyglot.START, self.start, address)
@@ -224,6 +227,7 @@ class Controller(Node):
 
         #Build event types array:
         _eventTypes = []
+        _allEventTypes = []
         try:
             eventTypeResponse = self.r_api.notification.get_webhook_event_type()
             if not self.parseResponse(eventTypeResponse):
@@ -233,6 +237,7 @@ class Controller(Node):
                 # {'code': '301', 'error': 'No enum constant WATER_BUDGET for webhook 8'}
                 if type['name'] != 'WATER_BUDGET':
                     _eventTypes.append({'id':type['id']})
+                    _allEventTypes.append(type)
         except Exception as ex:
             LOGGER.error('Building event types from %s: %s',
                         str(eventTypeResponse), str(ex), exc_info=True)
@@ -257,10 +262,11 @@ class Controller(Node):
                                 LOGGER.info(f"webook url is correct: {_websocket['url']}")
                                 #URL is OK, check that all webhook event types are included:
                                 _allEventsPresent = True
-                                for type in eventTypeReponse[1]:
+                                for type in _allEventTypes:
                                     _found = False
                                     for d in _websocket['eventTypes']:
-                                        if d['id'] == type['id']:
+                                        LOGGER.debug(f'd={d} type={type}')
+                                        if d['name'] == type['name']:
                                             _found = True
                                             break
                                     if not _found:
