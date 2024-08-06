@@ -287,7 +287,7 @@ class RachioController(Node):
         self._tries = 0
         while self._tries < 2: #TODO: the first command to the Rachio server fails frequently for some reason with an SSL WRONG_VERSION_NUMBER error.  This is a temporary workaround to try a couple of times before giving up
             try:
-                self.parent.r_api.device.stop_ater(self.device_id)
+                self.parent.r_api.device.stop_water(self.device_id)
                 LOGGER.info('Command received to stop watering on %s Controller',self.name)
                 #self.update_info() Rely on webhook to update on device's change in status
                 self._tries = 0
