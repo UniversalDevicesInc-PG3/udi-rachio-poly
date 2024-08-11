@@ -178,39 +178,45 @@ class Controller(Node):
         #
         # All good, start the test
         #
+        msg = "Unknown Error"
         try:
-            msg = "Unknown Error"
             if 'uuid' in self.nsinfo and 'profileNum' in self.nsinfo:
                 conn = http.client.HTTPSConnection(host, port=port)
                 _headers = {'Content-Type': 'application/json'}
+                _data = json.dumps({'test': self.random})
                 _url = f"/api/eisy/pg3/webhook/response/{self.nsinfo['uuid']}/{self.nsinfo['profileNum']}"
                 LOGGER.info('Testing connectivity to %s:%s url:%s', str(host), str(port), _url)
 
-                conn.request('POST', _url, json.dumps({'test': self.random}), headers=_headers )
+                conn.request('POST', _url, _data, headers=_headers )
                 _resp = conn.getresponse()
-                headers = _resp.getheaders()
-                LOGGER.debug(f"Headers: {headers}")
-                content_type = _resp.getheader('Content-Type')
-                _respContent = _resp.read().decode()
-                conn.close()
-                if content_type and content_type.startswith('text/html;'):
-                    LOGGER.debug('Webhook connectivity test response = %s',str(_respContent))
-                    if _respContent == "success":
-                        LOGGER.info('Connectivity test to %s:%s succeeded', str(host), str(port))
-                        self.poly.Notices.delete('webhook')
-                        self.setDriver('GV0',1)
-                        return True
+                LOGGER.debug('Received Status=%s Reason=%s', _resp.status, _resp.reason)
+                if _resp.status == 200:
+                    headers = _resp.getheaders()
+                    LOGGER.debug(f"Headers: {headers}")
+                    content_type = _resp.getheader('Content-Type')
+                    _respContent = _resp.read().decode()
+                    conn.close()
+                    if content_type and content_type.startswith('text/html;'):
+                        LOGGER.debug('Webhook connectivity test response = %s',str(_respContent))
+                        if _respContent == "success":
+                            LOGGER.info('Connectivity test to %s:%s succeeded', str(host), str(port))
+                            self.clear_error('webhook')
+                            self.setDriver('GV0',1)
+                            self.clear_error('test_webhook')
+                            return True
+                        else:
+                            msg = f'test_webook Received unexpected content: {_respContent}'
                     else:
-                        msg = f'Unexpected content: {_respContent}'
+                        msg = f'test_webook Received unexpected content_type "{content_type}" {_respContent}'
                 else:
-                    msg = f'Unexpected content_type "{content_type}" {_respContent}'
+                    msg = f'Sending: POST to {host}:{port} {_url} headers={_headers} data={_data} Received: status={_resp.status} reason={_resp.reason}'
             else:
-                msg = f'Missing uuid and/or profileNum in nsinfo'
-            self.inc_error(msg)
+                msg = 'test_webook Missing uuid and/or profileNum in nsinfo'
         except Exception as ex:
-            self.inc_error(f'Exception: {ex}')
+            msg = f'test_webook Exception: {ex}'
         self.setDriver('GV0',0)
-        self.poly.Notices['api'] = f'Connectivity test to {host}:{port} was not successful. ' + msg + "<br>Please confirm portal webhooks are enabled, See <a href='https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md#requirements'  target='_blank'>Webooks Requirements</a>"
+        self.inc_error(f'Connectivity test to {host}:{port} was not successful. ' + msg + "<br>Please confirm portal webhooks are enabled, See <a href='https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md#requirements'  target='_blank'>Webooks Requirements</a>",
+                       name='test_webhook')
         return False
 
     def configure_webhook(self, WS_deviceID):
@@ -374,9 +380,10 @@ class Controller(Node):
         self.discover_st = None
 
         if not self.test_webhook():
-            LOGGER.inc_error('Unable to discover until webooks are working properly')
+            self.inc_error('Unable to discover until webooks are working properly',name='discover')
             self.discover_st = False
             return False
+        self.clear_error('discover')
 
         try:
             self.r_api = Rachio(self.api_key)
@@ -460,13 +467,17 @@ class Controller(Node):
         self.errors = val
         self.setDriver('ERR',self.errors,force=force)
 
-    def inc_error(self,err_str="error",exc_info=True,val=None):
-        if val is None:
-            val = 1
+    def inc_error(self,err_str="error",name='ns_error',exc_info=True,val=1):
         self.set_error(self.errors + val)
         if err_str is not None:
-            self.err_notice('ns_error',err_str)
+            self.err_notice(name,err_str)
             LOGGER.error(err_str,exc_info=exc_info)
+
+    def clear_error(self,name='ns_error'):
+        self.poly.Notices.delete(name)
+        # TODO: This is not right, really should track errors by name with their values
+        # TODO: If that is done we can get rid of "api_error" methods as well?
+        self.set_error(0)
 
     def dec_error(self,val=None):
         if val is None:
@@ -478,6 +489,9 @@ class Controller(Node):
             val = 0
         self.api_errors = val
         self.setDriver('GV1',self.errors,force=force)
+
+    def clear_api_error(self,name='api_error'):
+        self.clear_error(name)
 
     def inc_api_error(self,err_str="api_error",val=None):
         if val is None:

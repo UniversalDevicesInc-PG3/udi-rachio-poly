@@ -4,7 +4,7 @@
 
 * Make sure to [Configure Webooks](https://github.com/UniversalDevicesInc/udi_python_interface/blob/master/Webhooks.md) on that page, which is also described below:
   * This feature is only available on eisy and polisy using PG3x.
-  * PG3 remote access must be configured and active. To configure this, login to [My ISY](https://my.isy.io), and under your ISY, use: Select tools | Maintenance | PG3 remote access.
+  * PG3 remote access must be configured and active. To configure this, login to [My ISY](https://my.isy.io), and under your ISY, use: Select tools | PG3 | Remote Connection
   * Make sure Remote access is active.
   * If events are not sent to your nodeserver, make sure you are running the latest version, and proceed with a reconfiguration of remote access.
   * Please note that configuring remote access will reboot your eisy/polisy.
