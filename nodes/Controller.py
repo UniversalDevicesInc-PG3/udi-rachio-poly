@@ -62,7 +62,9 @@ class Controller(Node):
 
     def handler_nsinfo(self,params):
         LOGGER.info(f'params={params}')
-        self.nsinfo = params
+        # Why does PG3 send me all of them!?!?!
+        if params['name'] == 'Rachio':
+            self.nsinfo = params
         LOGGER.debug(f'nsinfo={self.nsinfo}')
 
     def handler_isy(self,params):
