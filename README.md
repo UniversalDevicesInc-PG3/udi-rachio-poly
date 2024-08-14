@@ -33,6 +33,9 @@ All issues are in [Github Rachio Issues](https://github.com/UniversalDevicesInc-
 
 ## Version History:
 IMPORTANT: You must enable PG3 remote access as detailed in [Configuration](POLYGLOT_CONFIG.md)
+* 5.0.4:
+  * Fix bug causing webhooks not to work in some random cases
+  * Fixes to error messages
 * 5.0.3: The original Author passed this off to JimBo.Automates
   * First release of Standard Perpetual License for $20
   * Use Portal Webhooks instead of needing to open up a local port
